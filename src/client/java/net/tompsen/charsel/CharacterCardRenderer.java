@@ -36,15 +36,30 @@ public class CharacterCardRenderer {
         Text nameTxt = Text.literal(c.name()).setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterUiHelper.CUSTOM_FONT)).formatted(Formatting.WHITE);
         CharacterUiHelper.drawRetroText(ctx, tr, nameTxt, x + 56, y + 14, 0xFFFFFF);
 
-        // Creative/Survival right next to the Name
+        // Game Mode Display
         int gameMode = c.playerNbt().isEmpty() ? -1 : c.playerNbt().getInt("playerGameType");
-        boolean isCreative = gameMode == 1;
-        String classStr = isCreative ? "★ Creative" : "Survival";
-        Text classTxt = Text.literal(classStr).setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterUiHelper.CUSTOM_FONT)).formatted(isCreative ? Formatting.AQUA : Formatting.GRAY);
+        boolean isHardcore = !c.playerNbt().isEmpty() && c.playerNbt().getBoolean("hardcore");
+        
+        String classStr;
+        Formatting color;
+        
+        if (isHardcore) {
+            classStr = "☠ Hardcore";
+            color = Formatting.DARK_RED;
+        } else {
+            switch (gameMode) {
+                case 1 -> { classStr = "★ Creative"; color = Formatting.AQUA; }
+                case 2 -> { classStr = "Adventure"; color = Formatting.GOLD; }
+                case 3 -> { classStr = "Spectator"; color = Formatting.DARK_GRAY; }
+                default -> { classStr = "Survival"; color = Formatting.GRAY; }
+            }
+        }
+
+        Text classTxt = Text.literal(classStr).setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterUiHelper.CUSTOM_FONT).withBold(isHardcore)).formatted(color);
         CharacterUiHelper.drawRetroText(ctx, tr, classTxt, x + 56 + tr.getWidth(nameTxt) + 8, y + 14, 0xFFFFFF);
 
-        // Level directly below the name (Only render if NOT in creative!)
-        if (!isCreative) {
+        // Level (Don't show for Creative/Spectator)
+        if (gameMode != 1 && gameMode != 3) {
             int level = c.playerNbt().isEmpty() ? 0 : c.playerNbt().getInt("XpLevel");
             Text lvlTxt = Text.literal("LVL " + level).setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterUiHelper.CUSTOM_FONT)).formatted(Formatting.YELLOW);
             CharacterUiHelper.drawRetroText(ctx, tr, lvlTxt, x + 56, y + 30, 0xFFFFFF);

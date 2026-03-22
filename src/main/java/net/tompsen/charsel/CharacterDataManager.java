@@ -20,8 +20,23 @@ public class CharacterDataManager {
         CharacterDto character = CharacterSelection.getSelectedCharacter(player);
         if (character == null) return;
 
-        player.getInventory().clear();
+        String worldId = getWorldId(player);
         NbtCompound playerNbt = character.playerNbt().copy();
+        NbtCompound worldPositions = character.worldPositions();
+
+        // 1. Handle Inheritance & Stacking for First-Time Join
+        if (!worldPositions.contains(worldId)) {
+            if (character.name().equalsIgnoreCase(player.getGameProfile().getName())) {
+                NbtCompound worldData = ModDataScanner.loadPlayerNbtFromWorld(player);
+                if (!worldData.isEmpty()) {
+                    playerNbt = mergePlayerNbt(player, playerNbt, worldData);
+                    CharacterSelection.LOGGER.info("[CharSel] Character {} inherited existing data for {} in {}",
+                            character.name(), player.getName().getString(), worldId);
+                }
+            }
+        }
+
+        player.getInventory().clear();
 
         if (!playerNbt.isEmpty()) {
             // Strip tags that cause "Invalid player data" or dimension mismatches
@@ -29,18 +44,17 @@ public class CharacterDataManager {
             playerNbt.remove("Rotation");
             playerNbt.remove("Dimension");
             playerNbt.remove("SpawnDimension");
-            playerNbt.remove("playerGameType");
-            playerNbt.remove("previousPlayerGameType");
+            
+            // We use the character's stored gamemode/hardcore
+            int gmId = playerNbt.contains("playerGameType") ? playerNbt.getInt("playerGameType") : 0;
 
             UUID uuid = player.getUuid();
             player.clearStatusEffects();
             player.readNbt(playerNbt);
             player.setUuid(uuid);
 
-            if (character.playerNbt().contains("playerGameType")) {
-                int gameModeId = character.playerNbt().getInt("playerGameType");
-                player.changeGameMode(GameMode.byId(gameModeId));
-            }
+            // Re-apply character-specific gamemode
+            player.changeGameMode(GameMode.byId(gmId));
         } else {
             // New character — ensure clean slate
             player.getInventory().clear();
@@ -52,9 +66,6 @@ public class CharacterDataManager {
             player.getHungerManager().setFoodLevel(20);
             player.getHungerManager().setSaturationLevel(5.0f);
         }
-
-        String worldId = getWorldId(player);
-        NbtCompound worldPositions = character.worldPositions();
 
         if (worldPositions.contains(worldId)) {
             NbtCompound pos = worldPositions.getCompound(worldId);
@@ -85,7 +96,7 @@ public class CharacterDataManager {
             String[] actualSkin = getSkinProperties(player);
             if (!actualSkin[0].isEmpty()) {
                 CharacterDto withSkin = new CharacterDto(
-                        character.id(), character.name(), character.playerNbt(),
+                        character.id(), character.name(), playerNbt,
                         character.worldPositions(), actualSkin[0], actualSkin[1],
                         character.skinUsername(), character.modData()
                 );
@@ -97,6 +108,83 @@ public class CharacterDataManager {
         player.sendAbilitiesUpdate();
         player.getInventory().markDirty();
         player.playerScreenHandler.sendContentUpdates();
+    }
+
+    private static NbtCompound mergePlayerNbt(ServerPlayerEntity player, NbtCompound base, NbtCompound additional) {
+        if (base.isEmpty()) return additional;
+        
+        NbtCompound merged = base.copy();
+
+        // 1. Merge Inventory (including Armor and Offhand)
+        net.minecraft.nbt.NbtList baseInv = merged.getList("Inventory", 10);
+        net.minecraft.nbt.NbtList addInv = additional.getList("Inventory", 10);
+        
+        Map<Integer, NbtCompound> slots = new HashMap<>();
+        for (int i = 0; i < baseInv.size(); i++) {
+            NbtCompound item = baseInv.getCompound(i);
+            slots.put((int) item.getByte("Slot") & 255, item);
+        }
+
+        for (int i = 0; i < addInv.size(); i++) {
+            NbtCompound item = addInv.getCompound(i).copy();
+            int slot = (int) item.getByte("Slot") & 255;
+            
+            // If slot is occupied (especially important for Armor 100-103 and Offhand 150/ -106)
+            if (slots.containsKey(slot)) {
+                // Try to find a free main inventory slot (0-35)
+                int newSlot = -1;
+                for (int s = 0; s < 36; s++) {
+                    if (!slots.containsKey(s)) {
+                        newSlot = s;
+                        break;
+                    }
+                }
+                
+                if (newSlot != -1) {
+                    item.putByte("Slot", (byte) newSlot);
+                    slots.put(newSlot, item);
+                } else {
+                    // Overflow — spawn at feet
+                    net.minecraft.item.ItemStack stack = net.minecraft.item.ItemStack.fromNbtOrEmpty(player.getRegistryManager(), item);
+                    player.dropItem(stack, false);
+                }
+            } else {
+                slots.put(slot, item);
+            }
+        }
+        
+        net.minecraft.nbt.NbtList finalInv = new net.minecraft.nbt.NbtList();
+        slots.values().forEach(finalInv::add);
+        merged.put("Inventory", finalInv);
+
+        // 2. Stack XP
+        int baseTotal = merged.getInt("XpTotal");
+        int addTotal = additional.getInt("XpTotal");
+        int newTotal = baseTotal + addTotal;
+        merged.putInt("XpTotal", newTotal);
+        
+        // Let Minecraft recalculate level/progress on next readNbt
+        merged.remove("XpLevel");
+        merged.remove("XpP");
+
+        // 3. Merge Effects
+        if (additional.contains("active_effects", 9)) {
+            net.minecraft.nbt.NbtList baseEffects = merged.getList("active_effects", 10);
+            net.minecraft.nbt.NbtList addEffects = additional.getList("active_effects", 10);
+            Set<String> existingEffects = new HashSet<>();
+            for (int i = 0; i < baseEffects.size(); i++) {
+                existingEffects.add(baseEffects.getCompound(i).getString("id"));
+            }
+            for (int i = 0; i < addEffects.size(); i++) {
+                NbtCompound effect = addEffects.getCompound(i);
+                if (!existingEffects.contains(effect.getString("id"))) {
+                    baseEffects.add(effect.copy());
+                }
+            }
+            merged.put("active_effects", baseEffects);
+        }
+
+        return merged;
     }
 
     public static void saveCurrentCharacter(ServerPlayerEntity player) {
@@ -119,15 +207,12 @@ public class CharacterDataManager {
         String[] skin = getSkinProperties(player);
         NbtCompound modData = current.modData().copy();
         NbtCompound currentWorldData = ModDataScanner.scanPlayerModData(player);
-        String prefix = worldId + "::";
 
+        // Save ALL mod data globally to stack and follow the character
         for (String key : currentWorldData.getKeys()) {
-            if (key.startsWith("advancements/") || key.startsWith("stats/")) {
-                modData.put(key, currentWorldData.get(key));
-                modData.remove(prefix + key);
-            } else {
-                modData.put(prefix + key, currentWorldData.get(key));
-            }
+            modData.put(key, currentWorldData.get(key));
+            // Remove any old prefixed version to keep it global
+            modData.remove(worldId + "::" + key);
         }
 
         // Cache Advancement Display Info

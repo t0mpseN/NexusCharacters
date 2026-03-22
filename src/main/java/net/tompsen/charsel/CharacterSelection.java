@@ -60,15 +60,17 @@ public class CharacterSelection implements ModInitializer {
 			}
 		});
 
-		//ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> {
-		//	ServerPlayerEntity player = handler.player;
-		//	// Small delay to let Cobblemon write first
-		//	//server.execute(() -> server.execute(() -> {
-		//	CharacterDataManager.saveCurrentCharacter(player);
-		//	CharacterSelection.clearSelectedCharacter(player);
-		//	playerJoinTick.remove(player.getUuid());
-		//	//}));
-		//});
+		// Hardcore Death Logic
+		net.fabricmc.fabric.api.entity.event.v1.ServerLivingEntityEvents.AFTER_DEATH.register((entity, damageSource) -> {
+			if (entity instanceof ServerPlayerEntity player) {
+				CharacterDto character = getSelectedCharacter(player);
+				if (character != null && character.playerNbt().getBoolean("hardcore")) {
+					LOGGER.info("[CharSel] Character {} died in Hardcore mode! Deleting...", character.name());
+					DATA_FILE_MANAGER.deleteCharacter(character.id());
+					clearSelectedCharacter(player);
+				}
+			}
+		});
 
 		ServerTickEvents.END_SERVER_TICK.register(server -> {
 			int tick = server.getTicks();

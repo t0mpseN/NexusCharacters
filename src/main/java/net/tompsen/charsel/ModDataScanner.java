@@ -115,6 +115,20 @@ public class ModDataScanner {
         } catch (IOException ignored) {}
     }
 
+    public static NbtCompound loadPlayerNbtFromWorld(ServerPlayerEntity player) {
+        Path worldDir = player.server.getSavePath(WorldSavePath.ROOT).toAbsolutePath().normalize();
+        Path playerFile = worldDir.resolve("playerdata/" + player.getUuid().toString() + ".dat");
+        
+        if (Files.exists(playerFile)) {
+            try {
+                return net.minecraft.nbt.NbtIo.readCompressed(playerFile, net.minecraft.nbt.NbtSizeTracker.ofUnlimitedBytes());
+            } catch (IOException e) {
+                CharacterSelection.LOGGER.warn("[CharSel] Failed to read world player data: {}", e.getMessage());
+            }
+        }
+        return new NbtCompound();
+    }
+
     private static final java.util.regex.Pattern UUID_PATTERN =
             java.util.regex.Pattern.compile(
                     "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",

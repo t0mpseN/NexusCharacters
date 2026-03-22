@@ -158,7 +158,7 @@ public class CharacterSelectionScreen extends Screen {
             CharacterUiHelper.drawRetroText(ctx, textRenderer, emptyTxt, vw / 2 - textRenderer.getWidth(emptyTxt) / 2, listY + 20, 0x666666);
         }
 
-        for (var child : this.children()) {
+        for (net.minecraft.client.gui.Element child : this.children()) {
             if (child instanceof net.minecraft.client.gui.Drawable drawable) {
                 drawable.render(ctx, smX, smY, delta);
             }

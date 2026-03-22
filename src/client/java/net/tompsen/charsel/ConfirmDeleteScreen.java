@@ -88,7 +88,7 @@ public class ConfirmDeleteScreen extends Screen {
         CharacterUiHelper.drawRetroText(ctx, textRenderer, warnTxt, cx - textRenderer.getWidth(warnTxt) / 2, panelY + 52, 0xFFFFFF);
 
         // Draw child buttons scaled
-        for (var child : this.children()) {
+        for (net.minecraft.client.gui.Element child : this.children()) {
             if (child instanceof net.minecraft.client.gui.Drawable drawable) {
                 drawable.render(ctx, smX, smY, delta);
             }

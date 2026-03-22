@@ -3,10 +3,12 @@ package net.tompsen.charsel;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.widget.ButtonWidget;
+import net.minecraft.client.gui.widget.CyclingButtonWidget;
 import net.minecraft.client.gui.widget.TextFieldWidget;
 import net.minecraft.nbt.NbtCompound;
 import net.minecraft.text.Text;
 import net.minecraft.util.Formatting;
+import net.minecraft.world.GameMode;
 
 import java.util.UUID;
 
@@ -15,6 +17,8 @@ public class CharacterCreationScreen extends Screen {
     private final Runnable onAdd;
     private TextFieldWidget nameField;
     private TextFieldWidget skinField;
+    private GameMode selectedGameMode = GameMode.SURVIVAL;
+    private boolean isHardcore = false;
     private String statusMessage = "";
     private int statusColor = 0xFFAAAAAA;
     private boolean fetching = false;
@@ -26,7 +30,7 @@ public class CharacterCreationScreen extends Screen {
     }
 
     private float getScale() {
-        return CharacterUiHelper.getScale(350.0f, 260.0f, width, height);
+        return CharacterUiHelper.getScale(350.0f, 300.0f, width, height);
     }
 
     @Override
@@ -36,27 +40,45 @@ public class CharacterCreationScreen extends Screen {
         int vh = (int) (height / scale);
 
         int cx = vw / 2;
-        int py = vh / 2 - 80;
+        int py = vh / 2 - 100;
 
-        nameField = new TextFieldWidget(textRenderer, cx - 100, py + 50, 200, 20, Text.literal("Name"));
+        nameField = new TextFieldWidget(textRenderer, cx - 100, py + 40, 200, 20, Text.literal("Name"));
         nameField.setPlaceholder(Text.literal("Character name..."));
         nameField.setMaxLength(20);
         addDrawableChild(nameField);
 
-        skinField = new TextFieldWidget(textRenderer, cx - 100, py + 100, 200, 20, Text.literal("Skin"));
+        skinField = new TextFieldWidget(textRenderer, cx - 100, py + 85, 200, 20, Text.literal("Skin"));
         skinField.setPlaceholder(Text.literal("Minecraft username..."));
         addDrawableChild(skinField);
 
+        CyclingButtonWidget<GameModeOption> gmButton = CyclingButtonWidget.builder(GameModeOption::getText)
+                .values(GameModeOption.values())
+                .initially(GameModeOption.SURVIVAL)
+                .build(cx - 100, py + 130, 200, 20, Text.literal("Game Mode"), (button, value) -> {
+                    this.selectedGameMode = value.gameMode;
+                    this.isHardcore = value.hardcore;
+                });
+        addDrawableChild(gmButton);
+
         addDrawableChild(ButtonWidget.builder(Text.literal("Create").setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterUiHelper.CUSTOM_FONT)), btn -> confirm())
-                .dimensions(cx - 100, py + 140, 95, 20).build());
+                .dimensions(cx - 100, py + 170, 95, 20).build());
         addDrawableChild(ButtonWidget.builder(Text.literal("Cancel").setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterUiHelper.CUSTOM_FONT)), btn -> client.setScreen(parent))
-                .dimensions(cx + 5, py + 140, 95, 20).build());
+                .dimensions(cx + 5, py + 170, 95, 20).build());
     }
 
     private void confirm() {
         String name = nameField.getText().trim();
         if (name.isEmpty()) {
             statusMessage = "Name cannot be empty";
+            statusColor = 0xFFFF5555;
+            return;
+        }
+
+        // Duplicate name check
+        boolean exists = CharacterSelection.DATA_FILE_MANAGER.characterList.stream()
+                .anyMatch(c -> c.name().equalsIgnoreCase(name));
+        if (exists) {
+            statusMessage = "A character with this name already exists";
             statusColor = 0xFFFF5555;
             return;
         }
@@ -84,8 +106,12 @@ public class CharacterCreationScreen extends Screen {
     }
 
     private void createCharacter(String name, String skinUsername, String skinValue, String skinSignature) {
+        NbtCompound playerNbt = new NbtCompound();
+        playerNbt.putInt("playerGameType", selectedGameMode.getId());
+        playerNbt.putBoolean("hardcore", isHardcore);
+
         CharacterSelection.DATA_FILE_MANAGER.addCharacter(new CharacterDto(
-                UUID.randomUUID(), name, new NbtCompound(), new NbtCompound(),
+                UUID.randomUUID(), name, playerNbt, new NbtCompound(),
                 skinValue, skinSignature, skinUsername, new NbtCompound()
         ));
         onAdd.run();
@@ -114,9 +140,9 @@ public class CharacterCreationScreen extends Screen {
 
         ctx.getMatrices().scale(scale, scale, 1.0f);
 
-        int pw = 240, ph = 210;
+        int pw = 240, ph = 240;
         int cx = vw / 2;
-        int py = vh / 2 - 80;
+        int py = vh / 2 - 100;
         int px = cx - pw / 2;
 
         // Draw Panel
@@ -127,13 +153,16 @@ public class CharacterCreationScreen extends Screen {
 
         // Draw Labels
         Text nameLabel = Text.literal("Name").setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterUiHelper.CUSTOM_FONT)).formatted(Formatting.GRAY);
-        CharacterUiHelper.drawRetroText(ctx, textRenderer, nameLabel, cx - 100, py + 38, 0xFFFFFF);
+        CharacterUiHelper.drawRetroText(ctx, textRenderer, nameLabel, cx - 100, py + 30, 0xFFFFFF);
 
         Text skinLabel = Text.literal("Skin Username (optional)").setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterUiHelper.CUSTOM_FONT)).formatted(Formatting.GRAY);
-        CharacterUiHelper.drawRetroText(ctx, textRenderer, skinLabel, cx - 100, py + 88, 0xFFFFFF);
+        CharacterUiHelper.drawRetroText(ctx, textRenderer, skinLabel, cx - 100, py + 75, 0xFFFFFF);
+
+        Text gmLabel = Text.literal("Game Mode").setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterUiHelper.CUSTOM_FONT)).formatted(Formatting.GRAY);
+        CharacterUiHelper.drawRetroText(ctx, textRenderer, gmLabel, cx - 100, py + 120, 0xFFFFFF);
 
         // Render input fields and buttons with scaled mouse coordinates
-        for (var child : this.children()) {
+        for (net.minecraft.client.gui.Element child : this.children()) {
             if (child instanceof net.minecraft.client.gui.Drawable drawable) {
                 drawable.render(ctx, smX, smY, delta);
             }
@@ -142,10 +171,32 @@ public class CharacterCreationScreen extends Screen {
         // Draw Status Message
         if (!statusMessage.isEmpty()) {
             Text statusTxt = Text.literal(statusMessage).setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterUiHelper.CUSTOM_FONT));
-            CharacterUiHelper.drawRetroText(ctx, textRenderer, statusTxt, cx - textRenderer.getWidth(statusTxt) / 2, py + 175, statusColor);
+            CharacterUiHelper.drawRetroText(ctx, textRenderer, statusTxt, cx - textRenderer.getWidth(statusTxt) / 2, py + 205, statusColor);
         }
 
         ctx.getMatrices().pop();
+    }
+
+    private enum GameModeOption {
+        SURVIVAL(GameMode.SURVIVAL, false, "Survival"),
+        HARDCORE(GameMode.SURVIVAL, true, "Hardcore"),
+        CREATIVE(GameMode.CREATIVE, false, "Creative"),
+        ADVENTURE(GameMode.ADVENTURE, false, "Adventure"),
+        SPECTATOR(GameMode.SPECTATOR, false, "Spectator");
+
+        final GameMode gameMode;
+        final boolean hardcore;
+        final String label;
+
+        GameModeOption(GameMode gameMode, boolean hardcore, String label) {
+            this.gameMode = gameMode;
+            this.hardcore = hardcore;
+            this.label = label;
+        }
+
+        Text getText() {
+            return Text.literal(label);
+        }
     }
 
     // Scale the mouse inputs for widgets to respond correctly
