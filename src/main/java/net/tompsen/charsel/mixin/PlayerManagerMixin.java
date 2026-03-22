@@ -1,6 +1,7 @@
 package net.tompsen.charsel.mixin;
 
 import net.minecraft.advancement.PlayerAdvancementTracker;
+import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.nbt.NbtCompound;
 import net.minecraft.server.PlayerManager;
 import net.minecraft.server.network.ServerPlayerEntity;
@@ -38,41 +39,57 @@ public class PlayerManagerMixin {
         }
     }
 
+    @Inject(method = "createStatHandler", at = @At("HEAD"))
+    private void beforeCreateStatHandler(PlayerEntity player, CallbackInfoReturnable<net.minecraft.stat.ServerStatHandler> cir) {
+        if (player instanceof ServerPlayerEntity serverPlayer) {
+            prepareCharacterData(serverPlayer);
+        }
+    }
+
     @Inject(method = "getAdvancementTracker", at = @At("HEAD"))
     private void beforeGetAdvancementTracker(ServerPlayerEntity player, CallbackInfoReturnable<PlayerAdvancementTracker> cir) {
+        prepareCharacterData(player);
+    }
+
+    private void prepareCharacterData(ServerPlayerEntity player) {
         Map<UUID, PlayerAdvancementTracker> trackers = ((PlayerManagerAccessor)(Object)this).getAdvancementTrackers();
+        // If advancement tracker is already created, we likely already ran this logic via getStatsHandler or another call
         if (trackers.containsKey(player.getUuid())) return;
 
-        UUID lastCharId = CharacterSelection.DATA_FILE_MANAGER.getLastUsed(player.getUuid());
-        if (lastCharId == null) return;
+        // Use selectedCharacter if set (Singleplayer/Integrated), otherwise fallback to last used
+        UUID charId = CharacterSelection.selectedCharacter != null
+                ? CharacterSelection.selectedCharacter.id()
+                : CharacterSelection.DATA_FILE_MANAGER.getLastUsed(player.getUuid());
 
-        CharacterSelection.DATA_FILE_MANAGER.findById(lastCharId).ifPresent(character -> {
-            Path worldDir = player.server.getSavePath(WorldSavePath.ROOT).toAbsolutePath().normalize();
-            String uuidStr = player.getUuid().toString();
-            Path advFile = worldDir.resolve("advancements/" + uuidStr + ".json");
+        if (charId == null) return;
 
-            if (!character.modData().isEmpty()) {
-                // Existing character — restore saved advancement data
-                NbtCompound advOnly = new NbtCompound();
-                for (String key : character.modData().getKeys()) {
-                    if (key.startsWith("advancements/") || key.startsWith("stats/")) {
-                        advOnly.put(key, character.modData().get(key));
+        CharacterSelection.DATA_FILE_MANAGER.findById(charId).ifPresent(character -> {
+            // 1. Clear all stale files for this UUID first to ensure absolute isolation
+            ModDataScanner.clearPlayerModData(player);
+
+            // 2. Prepare ALL character-specific files to restore (Global + World-specific)
+            String worldId = CharacterDataManager.getWorldId(player);
+            String prefix = worldId + "::";
+            NbtCompound toRestore = new NbtCompound();
+
+            for (String key : character.modData().getKeys()) {
+                if (key.startsWith("_charsel:")) continue; // Skip internal cache
+
+                if (key.contains("::")) {
+                    // Restore world-specific data if it matches the current world
+                    if (key.startsWith(prefix)) {
+                        toRestore.put(key.substring(prefix.length()), character.modData().get(key));
                     }
+                } else {
+                    // Restore character-global data (e.g., advancements, stats)
+                    toRestore.put(key, character.modData().get(key));
                 }
-                if (!advOnly.isEmpty()) {
-                    ModDataScanner.restorePlayerModData(player, advOnly);
-                    CharacterSelection.LOGGER.info("[CharSel] Pre-wrote advancements for {}", player.getName().getString());
-                }
-            } else {
-                // New character — delete any existing advancement file so it starts fresh
-                try {
-                    if (Files.exists(advFile)) {
-                        Files.delete(advFile);
-                        CharacterSelection.LOGGER.info("[CharSel] Cleared stale advancements for new character {}", player.getName().getString());
-                    }
-                } catch (IOException e) {
-                    CharacterSelection.LOGGER.warn("[CharSel] Failed to clear advancements: {}", e.getMessage());
-                }
+            }
+
+            if (!toRestore.isEmpty()) {
+                ModDataScanner.restorePlayerModData(player, toRestore);
+                CharacterSelection.LOGGER.info("[CharSel] Restored character data for {} in world {}",
+                        player.getName().getString(), worldId);
             }
         });
     }

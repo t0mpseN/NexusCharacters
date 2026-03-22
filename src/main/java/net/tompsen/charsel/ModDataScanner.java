@@ -93,6 +93,28 @@ public class ModDataScanner {
         }
     }
 
+    public static void clearPlayerModData(ServerPlayerEntity player) {
+        Path worldDir = player.server.getSavePath(WorldSavePath.ROOT).toAbsolutePath().normalize();
+        String uuidStr = player.getUuid().toString();
+
+        try (Stream<Path> dirs = Files.list(worldDir)) {
+            dirs.filter(Files::isDirectory)
+                    .filter(dir -> !IGNORED_FOLDERS.contains(dir.getFileName().toString()))
+                    .forEach(dir -> {
+                        try (Stream<Path> walk = Files.walk(dir)) {
+                            walk.filter(Files::isRegularFile)
+                                    .filter(file -> file.getFileName().toString().contains(uuidStr))
+                                    .forEach(file -> {
+                                        try {
+                                            Files.delete(file);
+                                            CharacterSelection.LOGGER.info("[CharSel] Deleted stale mod file: {}", file);
+                                        } catch (IOException ignored) {}
+                                    });
+                        } catch (IOException ignored) {}
+                    });
+        } catch (IOException ignored) {}
+    }
+
     private static final java.util.regex.Pattern UUID_PATTERN =
             java.util.regex.Pattern.compile(
                     "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",

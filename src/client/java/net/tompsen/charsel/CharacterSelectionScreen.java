@@ -37,17 +37,6 @@ public class CharacterSelectionScreen extends Screen {
     private double scrollAmount = 0;
     private final int stride = CharacterCardRenderer.CARD_H + 6;
 
-    private static final Identifier TRASH_ICON = Identifier.of("characterselection", "textures/gui/trash.png");
-    private static final Identifier EDIT_ICON = Identifier.of("characterselection", "textures/gui/edit.png");
-    private static final Identifier HEART_ICON = Identifier.of("characterselection", "textures/gui/heart.png");
-
-    private static final Identifier[] ARMOR_ICONS = {
-            Identifier.of("minecraft", "textures/item/empty_armor_slot_helmet.png"),
-            Identifier.of("minecraft", "textures/item/empty_armor_slot_chestplate.png"),
-            Identifier.of("minecraft", "textures/item/empty_armor_slot_leggings.png"),
-            Identifier.of("minecraft", "textures/item/empty_armor_slot_boots.png")
-    };
-
     public CharacterSelectionScreen(Screen parent, Runnable onConfirm) {
         super(Text.literal("Select Character"));
         this.parent = parent;
@@ -55,11 +44,7 @@ public class CharacterSelectionScreen extends Screen {
     }
 
     private float getScale() {
-        float targetW = 850.0f;
-        float targetH = 380.0f;
-        float scaleX = width / targetW;
-        float scaleY = height / targetH;
-        return Math.min(1.0f, Math.min(scaleX, scaleY));
+        return CharacterUiHelper.getScale(850.0f, 380.0f, width, height);
     }
 
     @Override
@@ -80,13 +65,13 @@ public class CharacterSelectionScreen extends Screen {
         int cx = vw / 2 - cw / 2;
         int cy = vh / 2 - ch / 2;
 
-        addDrawableChild(ButtonWidget.builder(Text.literal("<").setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterListScreen.CUSTOM_FONT)),
+        addDrawableChild(ButtonWidget.builder(Text.literal("<").setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterUiHelper.CUSTOM_FONT)),
                         btn -> this.close())
                 .dimensions(cx + 8, cy + 8, 20, 20).build());
 
         int btnHeight = 26;
         int buttonsY = cy + ch - 16 - btnHeight;
-        addDrawableChild(ButtonWidget.builder(Text.literal("+ Add Character").setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterListScreen.CUSTOM_FONT)),
+        addDrawableChild(ButtonWidget.builder(Text.literal("+ Add Character").setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterUiHelper.CUSTOM_FONT)),
                         btn -> client.setScreen(new CharacterCreationScreen(this, () -> { clearChildren(); refreshList(); })))
                 .dimensions(cx + 20, buttonsY, cw - 40, btnHeight).build());
     }
@@ -115,8 +100,8 @@ public class CharacterSelectionScreen extends Screen {
         int cx = vw / 2 - cw / 2, cy = vh / 2 - ch / 2;
         int listX = cx + 20, listY = cy + 40;
 
-        CharacterListScreen.drawMinecraftPanel(ctx, cx, cy, cw, ch);
-        drawScaledTitle(ctx, textRenderer, "SELECT CHARACTER", vw / 2, cy + 16, 1.2f);
+        CharacterUiHelper.drawMinecraftPanel(ctx, cx, cy, cw, ch);
+        CharacterUiHelper.drawScaledTitle(ctx, textRenderer, "SELECT CHARACTER", vw / 2, cy + 16, 1.2f, 0xFFFFFF);
 
         int maxScroll = Math.max(0, characters.size() * stride - (4 * stride));
         scrollAmount = MathHelper.clamp(scrollAmount, 0, maxScroll);
@@ -139,21 +124,22 @@ public class CharacterSelectionScreen extends Screen {
             boolean isHovered = smX >= listX && smX <= listX + CARD_W && smY >= cardY && smY <= cardY + CharacterCardRenderer.CARD_H && smY >= listY && smY <= listY + 4 * stride;
             if (isHovered) hoveredIndex = i;
 
-            CharacterCardRenderer.drawCard(ctx, textRenderer, characters.get(i), listX, cardY, isHovered);
+            boolean highlight = (i == hoveredIndex);
+            CharacterCardRenderer.drawCard(ctx, textRenderer, characters.get(i), listX, cardY, highlight);
 
-            int btnY = cardY + (CharacterCardRenderer.CARD_H - 20) / 2;
+            int btnY = cardY + 27; // Aligned with bottom of face (y+7+40 = y+47, button is 20h, so y+47-20 = y+27)
 
             int delX = listX + CARD_W - 28;
             boolean delHovered = isHovered && smX >= delX && smX <= delX + 20 && smY >= btnY && smY <= btnY + 20;
             ctx.fill(delX, btnY, delX + 20, btnY + 20, delHovered ? 0xFF995555 : 0xFF774444);
             ctx.drawBorder(delX, btnY, 20, 20, 0xFF222222);
-            ctx.drawTexture(TRASH_ICON, delX + 2, btnY + 2, 0, 0, 16, 16, 16, 16);
+            ctx.drawTexture(CharacterUiHelper.TRASH_ICON, delX + 2, btnY + 2, 0, 0, 16, 16, 16, 16);
 
             int editX = delX - 24;
             boolean editHovered = isHovered && smX >= editX && smX <= editX + 20 && smY >= btnY && smY <= btnY + 20;
             ctx.fill(editX, btnY, editX + 20, btnY + 20, editHovered ? 0xFF999999 : 0xFF777777);
             ctx.drawBorder(editX, btnY, 20, 20, 0xFF222222);
-            ctx.drawTexture(EDIT_ICON, editX + 2, btnY + 2, 0, 0, 16, 16, 16, 16);
+            ctx.drawTexture(CharacterUiHelper.EDIT_ICON, editX + 2, btnY + 2, 0, 0, 16, 16, 16, 16);
         }
 
         ctx.disableScissor();
@@ -168,8 +154,8 @@ public class CharacterSelectionScreen extends Screen {
         }
 
         if (characters.isEmpty()) {
-            Text emptyTxt = Text.literal("No characters yet").setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterListScreen.CUSTOM_FONT));
-            CharacterListScreen.drawRetroText(ctx, textRenderer, emptyTxt, vw / 2 - textRenderer.getWidth(emptyTxt) / 2, listY + 20, 0x666666);
+            Text emptyTxt = Text.literal("No characters yet").setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterUiHelper.CUSTOM_FONT));
+            CharacterUiHelper.drawRetroText(ctx, textRenderer, emptyTxt, vw / 2 - textRenderer.getWidth(emptyTxt) / 2, listY + 20, 0x666666);
         }
 
         for (var child : this.children()) {
@@ -262,8 +248,8 @@ public class CharacterSelectionScreen extends Screen {
         int px = centerPanelX - pw - 12;
         int py = centerPanelY;
 
-        CharacterListScreen.drawMinecraftPanel(ctx, px, py, pw, ph);
-        drawScaledTitle(ctx, textRenderer, "CHARACTER MODEL", px + pw / 2, py + 16, 1.2f);
+        CharacterUiHelper.drawMinecraftPanel(ctx, px, py, pw, ph);
+        CharacterUiHelper.drawScaledTitle(ctx, textRenderer, "CHARACTER MODEL", px + pw / 2, py + 16, 1.2f, 0xFFFFFF);
 
         int boxX = px + 16, boxY = py + 36, boxW = pw - 32, boxH = ph - 52;
         ctx.fill(boxX, boxY, boxX + boxW, boxY + boxH, 0xFF111111);
@@ -272,7 +258,7 @@ public class CharacterSelectionScreen extends Screen {
 
         OtherClientPlayerEntity dummy = DummyPlayerManager.getDummyPlayer(c);
         if (dummy != null) {
-            injectCameraIfNeeded();
+            CharacterUiHelper.injectCameraIfNeeded(client);
             dummy.age = 20;
             InventoryScreen.drawEntity(ctx, boxX + 6, boxY + 16, boxX + boxW - 6, boxY + boxH - 10, 60, 0.0625F, (float)mouseX, (float)mouseY, dummy);
         }
@@ -284,8 +270,8 @@ public class CharacterSelectionScreen extends Screen {
         int py = centerPanelY;
         ItemStack hoveredItem = ItemStack.EMPTY;
 
-        CharacterListScreen.drawMinecraftPanel(ctx, px, py, pw, ph);
-        drawScaledTitle(ctx, tr, "INVENTORY", px + pw / 2, py + 16, 1.2f);
+        CharacterUiHelper.drawMinecraftPanel(ctx, px, py, pw, ph);
+        CharacterUiHelper.drawScaledTitle(ctx, tr, "INVENTORY", px + pw / 2, py + 16, 1.2f, 0xFFFFFF);
 
         int startX = px + 28, slotSize = 20, gap = 2, hotbarGap = 8;
 
@@ -302,11 +288,10 @@ public class CharacterSelectionScreen extends Screen {
         }
 
         int hotbarY = py + 40;
-        Text hTxt = Text.literal("H").setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterListScreen.CUSTOM_FONT)).formatted(Formatting.GREEN);
-        CharacterListScreen.drawRetroText(ctx, tr, hTxt, startX - 16, hotbarY + 6, 0xFFFFFF);
+        ctx.drawTexture(Identifier.of("minecraft", "textures/item/iron_pickaxe.png"), startX - 18, hotbarY + 2, 0, 0, 16, 16, 16, 16);
         for (int i = 0; i < 9; i++) {
             int sx = startX + i * (slotSize + gap);
-            drawMinecraftRect(ctx, sx, hotbarY, slotSize, slotSize);
+            CharacterUiHelper.drawMinecraftRect(ctx, sx, hotbarY, slotSize, slotSize);
             if (!invItems[i].isEmpty()) {
                 ctx.drawItem(invItems[i], sx + 2, hotbarY + 2);
                 ctx.drawItemInSlot(tr, invItems[i], sx + 2, hotbarY + 2);
@@ -320,11 +305,11 @@ public class CharacterSelectionScreen extends Screen {
             int col = i % 9;
             int sx = startX + col * (slotSize + gap);
             int sy = invY + row * (slotSize + gap);
-            drawMinecraftRect(ctx, sx, sy, slotSize, slotSize);
+            CharacterUiHelper.drawMinecraftRect(ctx, sx, sy, slotSize, slotSize);
 
             if (col == 0) {
-                Text rowTxt = Text.literal(String.valueOf(row + 1)).setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterListScreen.CUSTOM_FONT)).formatted(Formatting.GRAY);
-                CharacterListScreen.drawRetroText(ctx, tr, rowTxt, startX - 16, sy + 6, 0xFFFFFF);
+                Text rowTxt = Text.literal(String.valueOf(row + 1)).setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterUiHelper.CUSTOM_FONT)).formatted(Formatting.GRAY);
+                CharacterUiHelper.drawRetroText(ctx, tr, rowTxt, startX - 16, sy + 6, 0xFFFFFF);
             }
 
             int itemSlot = i + 9;
@@ -338,11 +323,11 @@ public class CharacterSelectionScreen extends Screen {
         int armorX = startX + 9 * (slotSize + gap) + 6;
         for (int i = 0; i < 4; i++) {
             int sy = hotbarY + i * (slotSize + 4);
-            drawMinecraftRect(ctx, armorX, sy, slotSize, slotSize);
+            CharacterUiHelper.drawMinecraftRect(ctx, armorX, sy, slotSize, slotSize);
 
             int armorSlot = 103 - i;
             if (invItems[armorSlot].isEmpty()) {
-                ctx.drawTexture(ARMOR_ICONS[i], armorX + 2, sy + 2, 0, 0, 16, 16, 16, 16);
+                ctx.drawTexture(CharacterUiHelper.ARMOR_ICONS[i], armorX + 2, sy + 2, 0, 0, 16, 16, 16, 16);
             } else {
                 ctx.drawItem(invItems[armorSlot], armorX + 2, sy + 2);
                 ctx.drawItemInSlot(tr, invItems[armorSlot], armorX + 2, sy + 2);
@@ -355,7 +340,7 @@ public class CharacterSelectionScreen extends Screen {
         ctx.fill(px + 16, divY + 2, px + pw - 16, divY + 4, 0xFF222222);
 
         int statsY = divY + 10;
-        drawScaledTitle(ctx, tr, "STATS", px + pw / 2, statsY, 1.2f);
+        CharacterUiHelper.drawScaledTitle(ctx, tr, "STATS", px + pw / 2, statsY, 1.2f, 0xFFFFFF);
 
         float hp = nbt != null && nbt.contains("Health") ? nbt.getFloat("Health") : 20f;
         int level = nbt != null && nbt.contains("XpLevel") ? nbt.getInt("XpLevel") : 0;
@@ -366,16 +351,16 @@ public class CharacterSelectionScreen extends Screen {
         int row1Y = statsY + 16;
 
         int hpX = px + 20;
-        ctx.drawTexture(HEART_ICON, hpX, row1Y, 0, 0, 12, 12, 12, 12);
-        Text hpTxt = Text.literal((int)hp + "/20").setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterListScreen.CUSTOM_FONT)).formatted(Formatting.RED);
-        CharacterListScreen.drawRetroText(ctx, tr, hpTxt, hpX + 16, row1Y + 3, 0xFFFFFF);
+        ctx.drawTexture(CharacterUiHelper.HEART_ICON, hpX, row1Y, 0, 0, 12, 12, 12, 12);
+        Text hpTxt = Text.literal((int)hp + "/20").setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterUiHelper.CUSTOM_FONT)).formatted(Formatting.RED);
+        CharacterUiHelper.drawRetroText(ctx, tr, hpTxt, hpX + 16, row1Y + 3, 0xFFFFFF);
 
         int barW = 110;
         int barX = (px + pw - 20) - barW;
         int barY = row1Y + 4;
 
-        Text lvlTxt = Text.literal("LVL " + (isCreative ? "∞" : level)).setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterListScreen.CUSTOM_FONT)).formatted(isCreative ? Formatting.AQUA : Formatting.GREEN);
-        CharacterListScreen.drawRetroText(ctx, tr, lvlTxt, barX - tr.getWidth(lvlTxt) - 6, row1Y + 3, 0xFFFFFF);
+        Text lvlTxt = Text.literal("LVL " + (isCreative ? "∞" : level)).setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterUiHelper.CUSTOM_FONT)).formatted(isCreative ? Formatting.AQUA : Formatting.GREEN);
+        CharacterUiHelper.drawRetroText(ctx, tr, lvlTxt, barX - tr.getWidth(lvlTxt) - 6, row1Y + 3, 0xFFFFFF);
 
         ctx.fill(barX, barY, barX + barW, barY + 5, 0xFF000000);
         ctx.fill(barX + 1, barY + 1, barX + barW - 1, barY + 4, 0xFF383838);
@@ -393,7 +378,7 @@ public class CharacterSelectionScreen extends Screen {
             }
         }
 
-        PlayerStatsInfo stats = getPlayerStats(c);
+        CharacterUiHelper.PlayerStatsInfo stats = CharacterUiHelper.getPlayerStats(c);
         int extraY = barY + 14;
 
         int hours = stats.playTime() / (20 * 60 * 60);
@@ -401,20 +386,17 @@ public class CharacterSelectionScreen extends Screen {
         String timeStr = hours > 0 ? hours + "h " + minutes + "m" : minutes + "m";
         if (stats.playTime() == 0) timeStr = "---";
 
-        Text stat1 = Text.literal("Blocks: ").setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterListScreen.CUSTOM_FONT)).formatted(Formatting.GRAY).append(Text.literal(stats.blocksMined() > 0 ? String.valueOf(stats.blocksMined()) : "---").formatted(Formatting.WHITE));
-        Text stat2 = Text.literal("Time: ").setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterListScreen.CUSTOM_FONT)).formatted(Formatting.GRAY).append(Text.literal(timeStr).formatted(Formatting.WHITE));
-        Text stat3 = Text.literal("Kills: ").setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterListScreen.CUSTOM_FONT)).formatted(Formatting.GRAY).append(Text.literal(stats.mobKills() > 0 ? String.valueOf(stats.mobKills()) : "---").formatted(Formatting.WHITE));
-        Text stat4 = Text.literal("Diamonds: ").setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterListScreen.CUSTOM_FONT)).formatted(Formatting.GRAY).append(Text.literal(stats.diamonds() > 0 ? String.valueOf(stats.diamonds()) : "---").formatted(Formatting.WHITE));
+        Text stat1 = Text.literal("Time played: ").setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterUiHelper.CUSTOM_FONT)).formatted(Formatting.GRAY).append(Text.literal(timeStr).formatted(Formatting.WHITE));
+        Text stat2 = Text.literal("Mob Kills: ").setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterUiHelper.CUSTOM_FONT)).formatted(Formatting.GRAY).append(Text.literal(stats.mobKills() > 0 ? String.valueOf(stats.mobKills()) : "---").formatted(Formatting.WHITE));
+        Text stat3 = Text.literal("Diamonds mined: ").setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterUiHelper.CUSTOM_FONT)).formatted(Formatting.GRAY).append(Text.literal(stats.diamonds() > 0 ? String.valueOf(stats.diamonds()) : "---").formatted(Formatting.WHITE));
 
         int col1 = px + 20;
-        int col2 = px + pw / 2 + 6;
 
-        CharacterListScreen.drawRetroText(ctx, tr, stat1, col1, extraY, 0xFFFFFF);
-        CharacterListScreen.drawRetroText(ctx, tr, stat2, col2, extraY, 0xFFFFFF);
-        CharacterListScreen.drawRetroText(ctx, tr, stat3, col1, extraY + 14, 0xFFFFFF);
-        CharacterListScreen.drawRetroText(ctx, tr, stat4, col2, extraY + 14, 0xFFFFFF);
+        CharacterUiHelper.drawRetroText(ctx, tr, stat1, col1, extraY, 0xFFFFFF);
+        CharacterUiHelper.drawRetroText(ctx, tr, stat2, col1, extraY + 14, 0xFFFFFF);
+        CharacterUiHelper.drawRetroText(ctx, tr, stat3, col1, extraY + 28, 0xFFFFFF);
 
-        AdvancementInfo latestAdv = getLatestAdvancement(c);
+        CharacterUiHelper.AdvancementInfo latestAdv = CharacterUiHelper.getLatestAdvancement(c);
 
         int badgeH = 64;
         int badgeW = pw - 32;
@@ -422,7 +404,7 @@ public class CharacterSelectionScreen extends Screen {
         int badgeY = py + ph - 16 - badgeH;
 
         int advTitleY = badgeY - 16;
-        drawScaledTitle(ctx, tr, "LATEST ADVANCEMENT", px + pw / 2, advTitleY, 1.2f);
+        CharacterUiHelper.drawScaledTitle(ctx, tr, "LATEST ADVANCEMENT", px + pw / 2, advTitleY, 1.2f, 0xFFFFFF);
 
         int div2Y = advTitleY - 10;
         ctx.fill(px + 16, div2Y, px + pw - 16, div2Y + 2, 0xFF555555);
@@ -442,10 +424,10 @@ public class CharacterSelectionScreen extends Screen {
             ctx.drawItem(latestAdv.icon(), 0, 0);
             ctx.getMatrices().pop();
 
-            Text titleTxt = Text.literal(latestAdv.title()).setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterListScreen.CUSTOM_FONT)).formatted(Formatting.WHITE);
-            CharacterListScreen.drawRetroText(ctx, tr, titleTxt, badgeX + 28, badgeY + 8, 0xFFFFFF);
+            Text titleTxt = Text.literal(latestAdv.title()).setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterUiHelper.CUSTOM_FONT)).formatted(Formatting.WHITE);
+            CharacterUiHelper.drawRetroText(ctx, tr, titleTxt, badgeX + 28, badgeY + 8, 0xFFFFFF);
 
-            Text descText = Text.literal(latestAdv.description()).setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterListScreen.CUSTOM_FONT));
+            Text descText = Text.literal(latestAdv.description()).setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterUiHelper.CUSTOM_FONT));
             List<OrderedText> lines = tr.wrapLines(descText, badgeW - 8);
 
             int lineY = badgeY + headerH + 4;
@@ -459,185 +441,11 @@ public class CharacterSelectionScreen extends Screen {
         } else {
             ctx.fill(badgeX, badgeY, badgeX + badgeW, badgeY + badgeH, 0xFF1A1A1A);
             ctx.drawBorder(badgeX, badgeY, badgeW, badgeH, 0xFF555555);
-            Text noAdv = Text.literal("No advancements yet").setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterListScreen.CUSTOM_FONT)).formatted(Formatting.DARK_GRAY);
-            CharacterListScreen.drawRetroText(ctx, tr, noAdv, badgeX + (badgeW - tr.getWidth(noAdv)) / 2, badgeY + (badgeH / 2) - 4, 0xFFFFFF);
+            Text noAdv = Text.literal("No advancements yet").setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterUiHelper.CUSTOM_FONT)).formatted(Formatting.DARK_GRAY);
+            CharacterUiHelper.drawRetroText(ctx, tr, noAdv, badgeX + (badgeW - tr.getWidth(noAdv)) / 2, badgeY + (badgeH / 2) - 4, 0xFFFFFF);
         }
 
         return hoveredItem;
-    }
-
-    private void drawScaledTitle(DrawContext ctx, TextRenderer tr, String text, int centerX, int y, float scale) {
-        ctx.getMatrices().push();
-        ctx.getMatrices().translate(centerX, y, 0);
-        ctx.getMatrices().scale(scale, scale, 1.0F);
-
-        int w = tr.getWidth(text);
-        Text shadowText = Text.literal(text).setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterListScreen.CUSTOM_FONT));
-        ctx.drawText(tr, shadowText, -w / 2 + 1, 1, 0xFF000000, false);
-
-        Text t = Text.literal(text).setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterListScreen.CUSTOM_FONT));
-        ctx.drawText(tr, t, -w / 2, 0, 0xFFFFFF, false);
-        ctx.getMatrices().pop();
-    }
-
-    private void drawMinecraftRect(DrawContext ctx, int x, int y, int w, int h) {
-        ctx.fill(x, y, x + w, y + h, 0xFF555555);
-        ctx.fill(x, y, x + w - 2, y + h - 2, 0xFF2A2A2A);
-        ctx.fillGradient(x + 2, y + 2, x + w - 2, y + h - 2, 0xFF1E1E1E, 0xFF141414);
-    }
-
-    private void injectCameraIfNeeded() {
-        try {
-            EntityRenderDispatcher dispatcher = client.getEntityRenderDispatcher();
-            java.lang.reflect.Field cameraField = EntityRenderDispatcher.class.getDeclaredField("camera");
-            cameraField.setAccessible(true);
-            if (cameraField.get(dispatcher) == null) cameraField.set(dispatcher, new Camera());
-        } catch (Throwable e) {
-            CharacterSelection.LOGGER.error("[CharSel] Camera inject fail:", e);
-        }
-    }
-
-    private PlayerStatsInfo getPlayerStats(CharacterDto c) {
-        int blocksMined = 0;
-        int mobKills = 0;
-        int diamonds = 0;
-        int playTime = 0;
-
-        NbtCompound modData = c.modData();
-        if (modData != null) {
-            String statsKey = modData.getKeys().stream().filter(k -> k.startsWith("stats/")).findFirst().orElse(null);
-            if (statsKey != null) {
-                try {
-                    String jsonString = new String(modData.getByteArray(statsKey), StandardCharsets.UTF_8);
-                    JsonObject root = JsonParser.parseString(jsonString).getAsJsonObject();
-                    if (root.has("stats")) {
-                        JsonObject stats = root.getAsJsonObject("stats");
-
-                        if (stats.has("minecraft:custom")) {
-                            JsonObject custom = stats.getAsJsonObject("minecraft:custom");
-                            if (custom.has("minecraft:mob_kills")) mobKills = custom.get("minecraft:mob_kills").getAsInt();
-                            if (custom.has("minecraft:play_time")) playTime = custom.get("minecraft:play_time").getAsInt();
-                        }
-
-                        if (stats.has("minecraft:mined")) {
-                            JsonObject mined = stats.getAsJsonObject("minecraft:mined");
-                            for (Map.Entry<String, JsonElement> entry : mined.entrySet()) {
-                                blocksMined += entry.getValue().getAsInt();
-                                if (entry.getKey().equals("minecraft:diamond_ore") || entry.getKey().equals("minecraft:deepslate_diamond_ore")) {
-                                    diamonds += entry.getValue().getAsInt();
-                                }
-                            }
-                        }
-                    }
-                } catch (Exception ignored) {}
-            }
-        }
-        return new PlayerStatsInfo(blocksMined, mobKills, diamonds, playTime);
-    }
-
-    private AdvancementInfo getLatestAdvancement(CharacterDto c) {
-        NbtCompound modData = c.modData();
-        if (modData == null || modData.isEmpty()) return null;
-
-        String advKey = modData.getKeys().stream()
-                .filter(k -> k.startsWith("advancements/"))
-                .findFirst().orElse(null);
-        if (advKey == null) return null;
-
-        try {
-            byte[] bytes = modData.getByteArray(advKey);
-            String jsonString = new String(bytes, StandardCharsets.UTF_8);
-            JsonObject json = JsonParser.parseString(jsonString).getAsJsonObject();
-
-            String latestId = null;
-            String latestTime = "";
-            String latestCriteriaKey = null;
-
-            for (Map.Entry<String, JsonElement> entry : json.entrySet()) {
-                String id = entry.getKey();
-                if (id.equals("DataVersion") || id.contains("recipes/")) continue;
-
-                JsonObject advNode = entry.getValue().getAsJsonObject();
-                if (advNode.has("done") && advNode.get("done").getAsBoolean() && advNode.has("criteria")) {
-                    JsonObject criteria = advNode.getAsJsonObject("criteria");
-                    for (Map.Entry<String, JsonElement> crit : criteria.entrySet()) {
-                        String time = crit.getValue().getAsString();
-                        if (time.compareTo(latestTime) > 0) {
-                            latestTime = time;
-                            latestId = id;
-                            latestCriteriaKey = crit.getKey();
-                        }
-                    }
-                }
-            }
-
-            if (latestId == null) return null;
-
-            net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
-            if (client.getNetworkHandler() != null) {
-                try {
-                    Identifier advId = Identifier.tryParse(latestId);
-                    if (advId != null) {
-                        net.minecraft.advancement.AdvancementEntry advancementEntry = client.getNetworkHandler().getAdvancementHandler().getManager().get(advId).getAdvancementEntry();
-
-                        if (advancementEntry != null) {
-                            net.minecraft.advancement.Advancement advancement = advancementEntry.value();
-                            if (advancement.display().isPresent()) {
-                                net.minecraft.advancement.AdvancementDisplay display = advancement.display().get();
-                                return new AdvancementInfo(display.getTitle().getString(), display.getDescription().getString(), display.getIcon());
-                            }
-                        }
-                    }
-                } catch (Exception ignored) {}
-            }
-
-            Identifier advId = Identifier.tryParse(latestId);
-            String title = "Advancement";
-            String desc = "Completed an advancement.";
-            ItemStack iconStack = new ItemStack(Items.MAP);
-
-            if (advId != null) {
-                String path = advId.getPath().replace('/', '.');
-                String titleKey = "advancements." + path + ".title";
-                String descKey = "advancements." + path + ".description";
-
-                net.minecraft.util.Language lang = net.minecraft.util.Language.getInstance();
-
-                if (lang.hasTranslation(titleKey)) {
-                    title = lang.get(titleKey);
-                    desc = lang.get(descKey);
-                } else {
-                    String name = advId.getPath();
-                    name = name.contains("/") ? name.substring(name.lastIndexOf('/') + 1) : name;
-                    name = name.replace("_", " ");
-                    String[] words = name.split(" ");
-                    StringBuilder sb = new StringBuilder();
-                    for (String w : words) {
-                        if (!w.isEmpty()) sb.append(Character.toUpperCase(w.charAt(0))).append(w.substring(1)).append(" ");
-                    }
-                    title = sb.toString().trim();
-                }
-
-                if (latestCriteriaKey != null) {
-                    Identifier itemId = Identifier.tryParse(latestCriteriaKey);
-                    if (itemId == null && !latestCriteriaKey.contains(":")) {
-                        itemId = Identifier.of("minecraft", latestCriteriaKey);
-                    }
-                    if (itemId != null) {
-                        net.minecraft.item.Item item = net.minecraft.registry.Registries.ITEM.get(itemId);
-                        if (item != Items.AIR) {
-                            iconStack = new ItemStack(item);
-                        }
-                    }
-                }
-            }
-
-            return new AdvancementInfo(title, desc, iconStack);
-
-        } catch (Exception e) {
-            CharacterSelection.LOGGER.error("[CharSel] Failed to parse advancement JSON", e);
-            return null;
-        }
     }
 
     @Override public boolean shouldCloseOnEsc() { return true; }
@@ -645,7 +453,4 @@ public class CharacterSelectionScreen extends Screen {
         DummyPlayerManager.clearCache();
         client.setScreen(parent);
     }
-
-    private record PlayerStatsInfo(int blocksMined, int mobKills, int diamonds, int playTime) {}
-    private record AdvancementInfo(String title, String description, ItemStack icon) {}
 }

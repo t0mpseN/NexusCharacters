@@ -25,11 +25,7 @@ public class CharacterEditScreen extends Screen {
     }
 
     private float getScale() {
-        float targetW = 350.0f;
-        float targetH = 260.0f;
-        float scaleX = width / targetW;
-        float scaleY = height / targetH;
-        return Math.min(1.0f, Math.min(scaleX, scaleY));
+        return CharacterUiHelper.getScale(350.0f, 260.0f, width, height);
     }
 
     @Override
@@ -43,6 +39,7 @@ public class CharacterEditScreen extends Screen {
 
         nameField = new TextFieldWidget(textRenderer, cx - 100, py + 50, 200, 20, Text.literal("Name"));
         nameField.setText(character.name());
+        nameField.setMaxLength(20);
         addDrawableChild(nameField);
 
         skinField = new TextFieldWidget(textRenderer, cx - 100, py + 100, 200, 20, Text.literal("Skin"));
@@ -51,9 +48,9 @@ public class CharacterEditScreen extends Screen {
         skinField.setPlaceholder(Text.literal("Minecraft username..."));
         addDrawableChild(skinField);
 
-        addDrawableChild(ButtonWidget.builder(Text.literal("Save").setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterListScreen.CUSTOM_FONT)), btn -> confirm())
+        addDrawableChild(ButtonWidget.builder(Text.literal("Save").setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterUiHelper.CUSTOM_FONT)), btn -> confirm())
                 .dimensions(cx - 100, py + 140, 95, 20).build());
-        addDrawableChild(ButtonWidget.builder(Text.literal("Cancel").setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterListScreen.CUSTOM_FONT)), btn -> client.setScreen(parent))
+        addDrawableChild(ButtonWidget.builder(Text.literal("Cancel").setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterUiHelper.CUSTOM_FONT)), btn -> client.setScreen(parent))
                 .dimensions(cx + 5, py + 140, 95, 20).build());
     }
 
@@ -109,9 +106,8 @@ public class CharacterEditScreen extends Screen {
 
     @Override
     public void render(DrawContext ctx, int mouseX, int mouseY, float delta) {
-        // Draw parent screen and a dark overlay
-        parent.render(ctx, mouseX, mouseY, delta);
-        ctx.fillGradient(0, 0, width, height, 0xD0000000, 0xD0000000);
+        // Draw parent screen without hover effects
+        parent.render(ctx, -1, -1, delta);
 
         float scale = getScale();
         int smX = (int) (mouseX / scale);
@@ -120,6 +116,9 @@ public class CharacterEditScreen extends Screen {
         int vh = (int) (height / scale);
 
         ctx.getMatrices().push();
+        ctx.getMatrices().translate(0, 0, 50);
+        ctx.fill(0, 0, width, height, 0xD0000000);
+
         ctx.getMatrices().scale(scale, scale, 1.0f);
 
         int pw = 240, ph = 210;
@@ -128,17 +127,17 @@ public class CharacterEditScreen extends Screen {
         int px = cx - pw / 2;
 
         // Draw Panel
-        CharacterListScreen.drawMinecraftPanel(ctx, px, py - 10, pw, ph);
+        CharacterUiHelper.drawMinecraftPanel(ctx, px, py - 10, pw, ph);
 
         // Draw Scaled Title
-        drawScaledTitle(ctx, "EDIT CHARACTER", cx, py + 8, 1.2f);
+        CharacterUiHelper.drawScaledTitle(ctx, textRenderer, "EDIT CHARACTER", cx, py + 8, 1.2f, 0xFFFFFF);
 
         // Draw Labels
-        Text nameLabel = Text.literal("Name").setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterListScreen.CUSTOM_FONT)).formatted(Formatting.GRAY);
-        CharacterListScreen.drawRetroText(ctx, textRenderer, nameLabel, cx - 100, py + 38, 0xFFFFFF);
+        Text nameLabel = Text.literal("Name").setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterUiHelper.CUSTOM_FONT)).formatted(Formatting.GRAY);
+        CharacterUiHelper.drawRetroText(ctx, textRenderer, nameLabel, cx - 100, py + 38, 0xFFFFFF);
 
-        Text skinLabel = Text.literal("Skin Username (optional)").setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterListScreen.CUSTOM_FONT)).formatted(Formatting.GRAY);
-        CharacterListScreen.drawRetroText(ctx, textRenderer, skinLabel, cx - 100, py + 88, 0xFFFFFF);
+        Text skinLabel = Text.literal("Skin Username (optional)").setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterUiHelper.CUSTOM_FONT)).formatted(Formatting.GRAY);
+        CharacterUiHelper.drawRetroText(ctx, textRenderer, skinLabel, cx - 100, py + 88, 0xFFFFFF);
 
         // Render input fields and buttons with scaled mouse coordinates
         for (var child : this.children()) {
@@ -149,24 +148,10 @@ public class CharacterEditScreen extends Screen {
 
         // Draw Status Message
         if (!statusMessage.isEmpty()) {
-            Text statusTxt = Text.literal(statusMessage).setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterListScreen.CUSTOM_FONT));
-            CharacterListScreen.drawRetroText(ctx, textRenderer, statusTxt, cx - textRenderer.getWidth(statusTxt) / 2, py + 175, statusColor);
+            Text statusTxt = Text.literal(statusMessage).setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterUiHelper.CUSTOM_FONT));
+            CharacterUiHelper.drawRetroText(ctx, textRenderer, statusTxt, cx - textRenderer.getWidth(statusTxt) / 2, py + 175, statusColor);
         }
 
-        ctx.getMatrices().pop();
-    }
-
-    private void drawScaledTitle(DrawContext ctx, String text, int centerX, int y, float scale) {
-        ctx.getMatrices().push();
-        ctx.getMatrices().translate(centerX, y, 0);
-        ctx.getMatrices().scale(scale, scale, 1.0F);
-
-        int w = textRenderer.getWidth(text);
-        Text shadowText = Text.literal(text).setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterListScreen.CUSTOM_FONT));
-        ctx.drawText(textRenderer, shadowText, -w / 2 + 1, 1, 0xFF000000, false);
-
-        Text t = Text.literal(text).setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterListScreen.CUSTOM_FONT));
-        ctx.drawText(textRenderer, t, -w / 2, 0, 0xFFFFFF, false);
         ctx.getMatrices().pop();
     }
 

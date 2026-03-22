@@ -33,21 +33,21 @@ public class CharacterCardRenderer {
         ctx.drawTexture(skin, x + 8, y + 7, 40, 40, 40, 8, 8, 8, 64, 64);
 
         // Name
-        Text nameTxt = Text.literal(c.name()).setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterListScreen.CUSTOM_FONT)).formatted(Formatting.WHITE);
-        CharacterListScreen.drawRetroText(ctx, tr, nameTxt, x + 56, y + 14, 0xFFFFFF);
+        Text nameTxt = Text.literal(c.name()).setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterUiHelper.CUSTOM_FONT)).formatted(Formatting.WHITE);
+        CharacterUiHelper.drawRetroText(ctx, tr, nameTxt, x + 56, y + 14, 0xFFFFFF);
 
         // Creative/Survival right next to the Name
         int gameMode = c.playerNbt().isEmpty() ? -1 : c.playerNbt().getInt("playerGameType");
         boolean isCreative = gameMode == 1;
         String classStr = isCreative ? "★ Creative" : "Survival";
-        Text classTxt = Text.literal(classStr).setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterListScreen.CUSTOM_FONT)).formatted(isCreative ? Formatting.AQUA : Formatting.GRAY);
-        CharacterListScreen.drawRetroText(ctx, tr, classTxt, x + 56 + tr.getWidth(nameTxt) + 8, y + 14, 0xFFFFFF);
+        Text classTxt = Text.literal(classStr).setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterUiHelper.CUSTOM_FONT)).formatted(isCreative ? Formatting.AQUA : Formatting.GRAY);
+        CharacterUiHelper.drawRetroText(ctx, tr, classTxt, x + 56 + tr.getWidth(nameTxt) + 8, y + 14, 0xFFFFFF);
 
         // Level directly below the name (Only render if NOT in creative!)
         if (!isCreative) {
             int level = c.playerNbt().isEmpty() ? 0 : c.playerNbt().getInt("XpLevel");
-            Text lvlTxt = Text.literal("LVL " + level).setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterListScreen.CUSTOM_FONT)).formatted(Formatting.YELLOW);
-            CharacterListScreen.drawRetroText(ctx, tr, lvlTxt, x + 56, y + 30, 0xFFFFFF);
+            Text lvlTxt = Text.literal("LVL " + level).setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterUiHelper.CUSTOM_FONT)).formatted(Formatting.YELLOW);
+            CharacterUiHelper.drawRetroText(ctx, tr, lvlTxt, x + 56, y + 30, 0xFFFFFF);
         }
     }
 }

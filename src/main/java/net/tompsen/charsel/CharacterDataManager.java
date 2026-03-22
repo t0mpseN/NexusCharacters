@@ -24,12 +24,16 @@ public class CharacterDataManager {
         NbtCompound playerNbt = character.playerNbt().copy();
 
         if (!playerNbt.isEmpty()) {
+            // Strip tags that cause "Invalid player data" or dimension mismatches
             playerNbt.remove("Pos");
             playerNbt.remove("Rotation");
+            playerNbt.remove("Dimension");
+            playerNbt.remove("SpawnDimension");
             playerNbt.remove("playerGameType");
             playerNbt.remove("previousPlayerGameType");
 
             UUID uuid = player.getUuid();
+            player.clearStatusEffects();
             player.readNbt(playerNbt);
             player.setUuid(uuid);
 
@@ -40,6 +44,7 @@ public class CharacterDataManager {
         } else {
             // New character — ensure clean slate
             player.getInventory().clear();
+            player.clearStatusEffects();
             player.experienceLevel = 0;
             player.experienceProgress = 0f;
             player.totalExperience = 0;
@@ -76,8 +81,7 @@ public class CharacterDataManager {
                         new SkinReloadPayload(skinValue, skinSig != null ? skinSig : ""));
             }
         } else {
-            // Sem skin custom — captura a skin Mojang real e salva no personagem
-            // para o preview ficar consistente com o in-game
+            // capture real Mojang skin
             String[] actualSkin = getSkinProperties(player);
             if (!actualSkin[0].isEmpty()) {
                 CharacterDto withSkin = new CharacterDto(
@@ -89,8 +93,6 @@ public class CharacterDataManager {
                 CharacterSelection.DATA_FILE_MANAGER.updateCharacter(withSkin);
             }
         }
-
-        ModDataScanner.restorePlayerModData(player, character.modData());
 
         player.sendAbilitiesUpdate();
         player.getInventory().markDirty();
@@ -115,7 +117,23 @@ public class CharacterDataManager {
         worldPositions.put(worldId, pos);
 
         String[] skin = getSkinProperties(player);
-        NbtCompound modData = ModDataScanner.scanPlayerModData(player);
+        NbtCompound modData = current.modData().copy();
+        NbtCompound currentWorldData = ModDataScanner.scanPlayerModData(player);
+        String prefix = worldId + "::";
+
+        for (String key : currentWorldData.getKeys()) {
+            if (key.startsWith("advancements/") || key.startsWith("stats/")) {
+                modData.put(key, currentWorldData.get(key));
+                modData.remove(prefix + key);
+            } else {
+                modData.put(prefix + key, currentWorldData.get(key));
+            }
+        }
+
+        // Cache Advancement Display Info
+        NbtCompound displayCache = modData.getCompound("_charsel:adv_display_cache");
+        updateAdvancementDisplayCache(player, displayCache);
+        modData.put("_charsel:adv_display_cache", displayCache);
 
         CharacterDto updated = new CharacterDto(
                 current.id(), current.name(), playerNbt, worldPositions,
@@ -128,6 +146,31 @@ public class CharacterDataManager {
         if (!player.server.isDedicated()) {
             CharacterSelection.selectedCharacter = updated;
         }
+    }
+
+    private static void updateAdvancementDisplayCache(ServerPlayerEntity player, NbtCompound cache) {
+        net.minecraft.server.ServerAdvancementLoader loader = player.server.getAdvancementLoader();
+        net.minecraft.advancement.PlayerAdvancementTracker tracker = player.getAdvancementTracker();
+        for (net.minecraft.advancement.AdvancementEntry entry : loader.getAdvancements()) {
+            if (tracker.getProgress(entry).isDone()) {
+                entry.value().display().ifPresent(display -> {
+                    NbtCompound info = new NbtCompound();
+                    info.putString("title", display.getTitle().getString());
+                    info.putString("desc", display.getDescription().getString());
+                    info.put("icon", display.getIcon().encode(player.getRegistryManager()));
+                    cache.put(entry.id().toString(), info);
+                });
+            }
+        }
+    }
+
+    public static String getWorldId(ServerPlayerEntity player) {
+        String saveName = player.server.getSaveProperties().getLevelName();
+        String serverIp = player.server.isDedicated()
+                ? player.server.getServerIp() + ":" + player.server.getServerPort()
+                : "singleplayer";
+        long seed = player.getServerWorld().getSeed();
+        return serverIp + "|" + saveName + "|" + seed;
     }
 
     public static String[] getSkinProperties(ServerPlayerEntity player) {
@@ -159,15 +202,5 @@ public class CharacterDataManager {
 
         // Update for the player themselves
         player.networkHandler.sendPacket(addPacket);
-    }
-
-    private static String getWorldId(ServerPlayerEntity player) {
-        String saveName = player.server.getSaveProperties().getLevelName();
-        String serverIp = player.server.isDedicated()
-                ? player.server.getServerIp() + ":" + player.server.getServerPort()
-                : "singleplayer";
-        long seed = player.getServerWorld().getSeed();
-        String dimension = player.getServerWorld().getRegistryKey().getValue().toString();
-        return serverIp + "|" + saveName + "|" + seed + "|" + dimension;
     }
 }
