@@ -204,6 +204,11 @@ public class CharacterDataManager {
 
         NbtCompound playerNbt = new NbtCompound();
         player.writeNbt(playerNbt);
+        
+        // Preserve character-specific hardcore flag
+        if (current.playerNbt().getBoolean("hardcore")) {
+            playerNbt.putBoolean("hardcore", true);
+        }
 
         String worldId = getWorldId(player);
         NbtCompound worldPositions = current.worldPositions().copy();
