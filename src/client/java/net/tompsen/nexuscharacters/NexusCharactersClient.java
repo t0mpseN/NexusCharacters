@@ -28,7 +28,7 @@ public class NexusCharactersClient implements ClientModInitializer {
 				context.client().getSkinProvider()
 						.fetchSkinTextures(player.getGameProfile())
 						.thenAccept(textures ->
-								NexusCharacters.LOGGER.info("[CharSel] Skin atualizada: {}",
+								NexusCharacters.LOGGER.info("[NexusCharacters] Skin atualizada: {}",
 										textures.texture()));
 			});
 		});

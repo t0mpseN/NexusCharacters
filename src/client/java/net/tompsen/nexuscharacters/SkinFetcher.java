@@ -33,7 +33,7 @@ public class SkinFetcher {
                 }
 
                 String profileJson = new String(conn.getInputStream().readAllBytes()).trim();
-                NexusCharacters.LOGGER.info("[CharSel] Profile response: {}", profileJson);
+                NexusCharacters.LOGGER.info("[NexusCharacters] Profile response: {}", profileJson);
 
                 String uuid = extractField(profileJson, "id");
                 if (uuid == null || uuid.isEmpty()) {
@@ -58,7 +58,7 @@ public class SkinFetcher {
                 }
 
                 String skinJson = new String(conn2.getInputStream().readAllBytes()).trim();
-                NexusCharacters.LOGGER.info("[CharSel] Skin response (truncated): {}",
+                NexusCharacters.LOGGER.info("[NexusCharacters] Skin response (truncated): {}",
                         skinJson.substring(0, Math.min(200, skinJson.length())));
 
                 // Pega o primeiro bloco de properties
@@ -73,10 +73,10 @@ public class SkinFetcher {
                 callback.onResult(value, signature, null);
 
             } catch (Exception e) {
-                NexusCharacters.LOGGER.error("[CharSel] SkinFetcher error:", e);
+                NexusCharacters.LOGGER.error("[NexusCharacters] SkinFetcher error:", e);
                 callback.onResult(null, null, "Network error: " + e.getMessage());
             }
-        }, "CharSel-SkinFetcher");
+        }, "NexusCharacters-SkinFetcher");
         thread.setDaemon(true);
         thread.start();
     }

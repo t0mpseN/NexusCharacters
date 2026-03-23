@@ -7,7 +7,7 @@ import net.minecraft.util.Identifier;
 
 public record SaveCharacterPayload(NbtCompound characterNbt) implements CustomPayload {
     public static final CustomPayload.Id<SaveCharacterPayload> ID =
-            new CustomPayload.Id<>(Identifier.of("charsel", "save_character"));
+            new CustomPayload.Id<>(Identifier.of("nexuscharacters", "save_character"));
 
     public SaveCharacterPayload(PacketByteBuf buf) {
         this(buf.readNbt());

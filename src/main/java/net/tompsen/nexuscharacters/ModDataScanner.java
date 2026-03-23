@@ -116,7 +116,7 @@ public class ModDataScanner {
                                     .forEach(file -> {
                                         try {
                                             Files.delete(file);
-                                            NexusCharacters.LOGGER.info("[CharSel] Deleted stale data file: {}", file);
+                                            NexusCharacters.LOGGER.info("[NexusCharacters] Deleted stale data file: {}", file);
                                         } catch (IOException ignored) {}
                                     });
                         } catch (IOException ignored) {}
@@ -130,7 +130,7 @@ public class ModDataScanner {
                     .forEach(file -> {
                         try {
                             Files.delete(file);
-                            NexusCharacters.LOGGER.info("[CharSel] Deleted stale root file: {}", file);
+                            NexusCharacters.LOGGER.info("[NexusCharacters] Deleted stale root file: {}", file);
                         } catch (IOException ignored) {}
                     });
         } catch (IOException ignored) {}
@@ -144,7 +144,7 @@ public class ModDataScanner {
             try {
                 return net.minecraft.nbt.NbtIo.readCompressed(playerFile, net.minecraft.nbt.NbtSizeTracker.ofUnlimitedBytes());
             } catch (IOException e) {
-                NexusCharacters.LOGGER.warn("[CharSel] Failed to read world player data: {}", e.getMessage());
+                NexusCharacters.LOGGER.warn("[NexusCharacters] Failed to read world player data: {}", e.getMessage());
             }
         }
         return new NbtCompound();

@@ -86,7 +86,7 @@ public class PlayerManagerMixin {
             NbtCompound toRestore = new NbtCompound();
 
             for (String key : character.modData().getKeys()) {
-                if (key.startsWith("_charsel:")) continue; // Skip internal cache
+                if (key.startsWith("_nexuscharacters:")) continue; // Skip internal cache
 
                 if (key.contains("::")) {
                     if (key.startsWith(prefix)) {

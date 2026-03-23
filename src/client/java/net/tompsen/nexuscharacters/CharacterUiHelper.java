@@ -18,7 +18,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.Map;
 
 public class CharacterUiHelper {
-    public static final Identifier CUSTOM_FONT = Identifier.of("nexuscharacters", "charsel");
+    public static final Identifier CUSTOM_FONT = Identifier.of("nexuscharacters", "nexuscharacters");
     public static final Identifier TRASH_ICON = Identifier.of("nexuscharacters", "textures/gui/trash.png");
     public static final Identifier EDIT_ICON = Identifier.of("nexuscharacters", "textures/gui/edit.png");
     public static final Identifier HEART_ICON = Identifier.of("nexuscharacters", "textures/gui/heart.png");
@@ -75,7 +75,7 @@ public class CharacterUiHelper {
             cameraField.setAccessible(true);
             if (cameraField.get(dispatcher) == null) cameraField.set(dispatcher, new Camera());
         } catch (Throwable e) {
-            NexusCharacters.LOGGER.error("[CharSel] Camera inject fail:", e);
+            NexusCharacters.LOGGER.error("[NexusCharacters] Camera inject fail:", e);
         }
     }
 
@@ -130,7 +130,7 @@ public class CharacterUiHelper {
 
         // 1. Find the absolute latest advancement ID and its source file
         for (String key : modData.getKeys()) {
-            if (key.startsWith("_charsel:")) continue;
+            if (key.startsWith("_nexuscharacters:")) continue;
             String path = key.contains("::") ? key.substring(key.indexOf("::") + 2) : key;
             if (!path.startsWith("advancements/")) continue;
 
@@ -162,7 +162,7 @@ public class CharacterUiHelper {
         if (latestId == null) return null;
 
         // 2. Try to use the cached display info (Icons, Titles, etc.)
-        NbtCompound displayCache = modData.getCompound("_charsel:adv_display_cache");
+        NbtCompound displayCache = modData.getCompound("_nexuscharacters:adv_display_cache");
         if (displayCache.contains(latestId)) {
             NbtCompound info = displayCache.getCompound(latestId);
             String title = info.getString("title");

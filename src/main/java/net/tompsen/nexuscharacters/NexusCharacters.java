@@ -92,7 +92,7 @@ public class NexusCharacters implements ModInitializer {
 			if (entity instanceof ServerPlayerEntity player) {
 				CharacterDto character = getSelectedCharacter(player);
 				if (character != null && character.playerNbt().getBoolean("hardcore")) {
-					LOGGER.info("[CharSel] Character {} died in Hardcore mode! Deleting...", character.name());
+					LOGGER.info("[NexusCharacters] Character {} died in Hardcore mode! Deleting...", character.name());
 					deadHardcorePlayers.add(player.getUuid());
 					DATA_FILE_MANAGER.deleteCharacter(character.id());
 					clearSelectedCharacter(player);

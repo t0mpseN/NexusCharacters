@@ -8,7 +8,7 @@ import java.util.UUID;
 
 public record SelectCharacterPayload(CharacterDto character) implements CustomPayload {
     public static final CustomPayload.Id<SelectCharacterPayload> ID =
-            new CustomPayload.Id<>(Identifier.of("charsel", "select_character"));
+            new CustomPayload.Id<>(Identifier.of("nexuscharacters", "select_character"));
 
     public SelectCharacterPayload(PacketByteBuf buf) {
         this(CharacterDto.fromNbt(buf.readNbt()));

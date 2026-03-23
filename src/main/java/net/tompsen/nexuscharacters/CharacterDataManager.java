@@ -11,10 +11,6 @@ import net.minecraft.server.PlayerManager;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.world.GameMode;
-import net.tompsen.nexuscharacters.CharacterDto;
-import net.tompsen.nexuscharacters.ModDataScanner;
-import net.tompsen.nexuscharacters.NexusCharacters;
-import net.tompsen.nexuscharacters.SkinReloadPayload;
 
 import java.util.*;
 
@@ -35,7 +31,7 @@ public class CharacterDataManager {
                 if (!worldData.isEmpty()) {
                     playerNbt = mergePlayerNbt(player, playerNbt, worldData);
                     inherited = true;
-                    NexusCharacters.LOGGER.info("[Nexus] Character {} inherited existing data for {} in {}",
+                    NexusCharacters.LOGGER.info("[NexusCharacters] Character {} inherited existing data for {} in {}",
                             character.name(), player.getName().getString(), worldId);
                 }
             }
@@ -236,9 +232,9 @@ public class CharacterDataManager {
             }
 
             // Cache Advancement Display Info for Title Screen UI
-            NbtCompound displayCache = modData.getCompound("_charsel:adv_display_cache");
+            NbtCompound displayCache = modData.getCompound("_nexuscharacters:adv_display_cache");
             updateAdvancementDisplayCache(player, displayCache);
-            modData.put("_charsel:adv_display_cache", displayCache);
+            modData.put("_nexuscharacters:adv_display_cache", displayCache);
 
             CharacterDto updated = new CharacterDto(
                     current.id(), current.name(), playerNbt, worldPositions,
@@ -259,7 +255,7 @@ public class CharacterDataManager {
                 NexusCharacters.selectedCharacter = updated;
             }
         } catch (Exception e) {
-            NexusCharacters.LOGGER.error("[Nexus] Failed to save character for " + player.getName().getString(), e);
+            NexusCharacters.LOGGER.error("[NexusCharacters] Failed to save character for " + player.getName().getString(), e);
         }
     }
 

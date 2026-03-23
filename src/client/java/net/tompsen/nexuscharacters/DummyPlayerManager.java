@@ -95,7 +95,7 @@ public class DummyPlayerManager {
                     (net.minecraft.entity.data.TrackedData<Byte>) partsField.get(null);
             dummy.getDataTracker().set(partsData, (byte) 0x7F);
         } catch (Throwable e) {
-            NexusCharacters.LOGGER.warn("[CharSel] Falha ao ativar model parts: {}", e.getMessage());
+            NexusCharacters.LOGGER.warn("[NexusCharacters] Falha ao ativar model parts: {}", e.getMessage());
         }
 
         // 3. Equipar itens do inventário

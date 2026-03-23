@@ -1,7 +1,6 @@
 package net.tompsen.nexuscharacters;
 
 import net.minecraft.nbt.NbtCompound;
-import net.minecraft.server.network.ServerPlayerEntity;
 
 import java.util.UUID;
 

@@ -35,7 +35,7 @@ public class DummyWorldManager {
         try {
             return (DamageSources) getUnsafe().allocateInstance(DamageSources.class);
         } catch (Throwable e) {
-            NexusCharacters.LOGGER.error("[CharSel] Falha ao alocar DamageSources fake:", e);
+            NexusCharacters.LOGGER.error("[NexusCharacters] Falha ao alocar DamageSources fake:", e);
             return null;
         }
     }
@@ -88,7 +88,7 @@ public class DummyWorldManager {
         if (client.world != null) return client.world;
         if (dummyWorld == null) dummyWorld = buildFakeWorld(client);
         if (dummyWorld == null) {
-            NexusCharacters.LOGGER.error("[CharSel] Falha ao criar dummyWorld — veja erro acima");
+            NexusCharacters.LOGGER.error("[NexusCharacters] Falha ao criar dummyWorld — veja erro acima");
         }
         return dummyWorld;
     }
@@ -109,10 +109,10 @@ public class DummyWorldManager {
             Unsafe unsafe = getUnsafe();
             SafeClientWorld world = (SafeClientWorld) unsafe.allocateInstance(SafeClientWorld.class);
             injectFields(unsafe, world, client);
-            NexusCharacters.LOGGER.info("[CharSel] Mundo falso criado com sucesso.");
+            NexusCharacters.LOGGER.info("[NexusCharacters] Mundo falso criado com sucesso.");
             return world;
         } catch (Throwable e) {
-            NexusCharacters.LOGGER.error("[CharSel] Falha ao criar mundo falso:", e);
+            NexusCharacters.LOGGER.error("[NexusCharacters] Falha ao criar mundo falso:", e);
             return null;
         }
     }
