@@ -12,7 +12,7 @@ public class IconButtonWidget extends ButtonWidget {
 
     public IconButtonWidget(int x, int y, PressAction onPress) {
         super(x, y, 20, 20, Text.empty(), onPress, DEFAULT_NARRATION_SUPPLIER);
-        setTooltip(Tooltip.of(Text.literal("Character Selection")));
+        setTooltip(Tooltip.of(Text.literal("Characters List")));
     }
 
     @Override

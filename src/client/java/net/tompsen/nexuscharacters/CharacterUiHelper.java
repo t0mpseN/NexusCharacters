@@ -117,7 +117,7 @@ public class CharacterUiHelper {
         ctx.fill(x - 1, y - 1, x + w + 1, y + h + 1, 0xFF000000);
         
         // 2. Base border / Shadow
-        ctx.fill(x, y, x + w, y + h, active ? 0xFFFFFFFF : 0xFF373737);
+        ctx.fill(x, y, x + w - 1, y + h, active ? 0xFFFFFFFF : 0xFF373737);
         
         // 3. Thinner highlight border (2px)
         int border = 2;

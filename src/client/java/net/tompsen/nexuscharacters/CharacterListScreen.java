@@ -78,7 +78,7 @@ public class CharacterListScreen extends Screen {
         int pw = 220;
         int px = cx - pw - 12;
         int py = cy;
-        int boxH = ch - 52;
+        int boxH = ch - 50;
         int btnY = py + 36 + boxH - 24;
 
         equipmentToggle = addDrawableChild(new ModelToggleButton(px + 20, btnY, Identifier.of("minecraft", "textures/item/iron_helmet.png"),
@@ -437,7 +437,6 @@ public class CharacterListScreen extends Screen {
         CharacterUiHelper.drawRetroText(ctx, tr, stat2, col1, extraY + 14, 0xFFFFFF);
         CharacterUiHelper.drawRetroText(ctx, tr, stat3, col1, extraY + 28, 0xFFFFFF);
 
-
         CharacterUiHelper.AdvancementInfo latestAdv = CharacterUiHelper.getLatestAdvancement(c);
 
         int badgeH = 72;
@@ -484,7 +483,7 @@ public class CharacterListScreen extends Screen {
             ctx.getMatrices().pop();
 
             Text titleTxt = Text.literal(latestAdv.title()).setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterUiHelper.CUSTOM_FONT)).formatted(Formatting.WHITE);
-            CharacterUiHelper.drawRetroText(ctx, tr, titleTxt, badgeX + iconBoxSize - 4, badgeY + 6, 0xFFFFFF);
+            CharacterUiHelper.drawRetroText(ctx, tr, titleTxt, badgeX + iconBoxSize, badgeY + 6, 0xFFFFFF);
 
             Text descText = Text.literal(latestAdv.description()).setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterUiHelper.CUSTOM_FONT));
             List<OrderedText> lines = tr.wrapLines(descText, badgeW - 20);
@@ -496,7 +495,6 @@ public class CharacterListScreen extends Screen {
                 ctx.drawText(tr, line, badgeX + 8, lineY, 0xFF55FF55, false);
                 lineY += 10;
             }
-
         } else {
             CharacterUiHelper.drawMinecraftPanel(ctx, badgeX, badgeY, badgeW, badgeH);
             Text noAdv = Text.literal("No advancements yet").setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterUiHelper.CUSTOM_FONT)).formatted(Formatting.DARK_GRAY);
