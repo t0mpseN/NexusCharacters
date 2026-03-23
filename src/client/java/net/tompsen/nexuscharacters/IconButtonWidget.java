@@ -8,7 +8,7 @@ import net.minecraft.util.Identifier;
 
 public class IconButtonWidget extends ButtonWidget {
 
-    private static final Identifier ICON = Identifier.of("textures/gui/sprites/icon/accessibility.png");
+    private static final Identifier ICON = Identifier.of("nexuscharacters", "textures/gui/user-list.png");
 
     public IconButtonWidget(int x, int y, PressAction onPress) {
         super(x, y, 20, 20, Text.empty(), onPress, DEFAULT_NARRATION_SUPPLIER);
@@ -17,7 +17,7 @@ public class IconButtonWidget extends ButtonWidget {
 
     @Override
     public void renderWidget(DrawContext context, int mouseX, int mouseY, float delta) {
-        super.renderWidget(context, mouseX, mouseY, delta);
+        CharacterUiHelper.drawMinecraftButton(context, getX(), getY(), getWidth(), getHeight(), isHovered());
         // Draw icon centered on button
         context.drawTexture(ICON, getX() + 2, getY() + 2, 0, 0, 16, 16, 16, 16);
     }

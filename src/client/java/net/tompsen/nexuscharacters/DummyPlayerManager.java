@@ -28,6 +28,16 @@ public class DummyPlayerManager {
         DummyClientPlayer(ClientWorld world, GameProfile profile, UUID characterId) {
             super(world, profile);
             this.characterId = characterId;
+            // Force all model parts visible
+            try {
+                java.lang.reflect.Field partsField = net.minecraft.entity.player.PlayerEntity.class
+                        .getDeclaredField("PLAYER_MODEL_PARTS");
+                partsField.setAccessible(true);
+                @SuppressWarnings("unchecked")
+                net.minecraft.entity.data.TrackedData<Byte> partsData =
+                        (net.minecraft.entity.data.TrackedData<Byte>) partsField.get(null);
+                this.getDataTracker().set(partsData, (byte) 0x7F);
+            } catch (Throwable ignored) {}
         }
 
         @Override
@@ -36,6 +46,11 @@ public class DummyPlayerManager {
             if (cached != null) return cached;
             return DefaultSkinHelper.getSkinTextures(
                     DummyPlayerManager.resolveDefaultSkinUUID(characterId));
+        }
+
+        @Override
+        public boolean isPartVisible(net.minecraft.entity.player.PlayerModelPart part) {
+            return true;
         }
 
         @Override

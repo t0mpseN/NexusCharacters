@@ -32,13 +32,16 @@ public class ConfirmDeleteScreen extends Screen {
         int cx = vw / 2;
         int cy = vh / 2;
 
-        addDrawableChild(ButtonWidget.builder(Text.literal("Delete").setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterUiHelper.CUSTOM_FONT)).formatted(Formatting.RED), btn -> {
-            onConfirm.run();
-            client.setScreen(parent);
-        }).dimensions(cx - 104, cy + 24, 100, 20).build());
+        addDrawableChild(new RetroButtonWidget(cx - 104, cy + 24, 100, 20,
+                Text.literal("Delete").setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterUiHelper.CUSTOM_FONT)).formatted(Formatting.RED), 
+                btn -> {
+                    onConfirm.run();
+                    client.setScreen(parent);
+                }));
 
-        addDrawableChild(ButtonWidget.builder(Text.literal("Cancel").setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterUiHelper.CUSTOM_FONT)), btn -> client.setScreen(parent))
-                .dimensions(cx + 4, cy + 24, 100, 20).build());
+        addDrawableChild(new RetroButtonWidget(cx + 4, cy + 24, 100, 20,
+                Text.literal("Cancel").setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterUiHelper.CUSTOM_FONT)), 
+                btn -> client.setScreen(parent)));
     }
 
     @Override

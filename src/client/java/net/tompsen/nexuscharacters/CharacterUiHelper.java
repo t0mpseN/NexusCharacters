@@ -23,6 +23,10 @@ public class CharacterUiHelper {
     public static final Identifier EDIT_ICON = Identifier.of("nexuscharacters", "textures/gui/edit.png");
     public static final Identifier HEART_ICON = Identifier.of("nexuscharacters", "textures/gui/heart.png");
 
+    // Toggle states for model rendering
+    public static boolean autoRotate = false;
+    public static boolean showEquipment = true;
+
     public static final Identifier[] ARMOR_ICONS = {
             Identifier.of("minecraft", "textures/item/empty_armor_slot_helmet.png"),
             Identifier.of("minecraft", "textures/item/empty_armor_slot_chestplate.png"),
@@ -57,9 +61,72 @@ public class CharacterUiHelper {
     }
 
     public static void drawMinecraftPanel(DrawContext ctx, int x, int y, int w, int h) {
+        // 1. Outer drop shadow (Matches CSS: 4px 4px 8px rgba(0, 0, 0, 0.5))
+        ctx.fill(x + 4, y + 4, x + w + 4, y + h + 4, 0x80000000);
+
+        // 2. Crisp black outline (Creates the sharp separation seen in the image)
+        ctx.fill(x - 2, y - 2, x + w + 2, y + h + 2, 0xFF000000);
+
+        // 3. Dark gray base / Bottom-Right border (#373737)
         ctx.fill(x, y, x + w, y + h, 0xFF373737);
+
+        // 4. Light gray Top-Left border (#8B8B8B) - 4px thick
         ctx.fill(x, y, x + w - 4, y + h - 4, 0xFF8B8B8B);
+
+        // 5. Main background gradient (#3C3C3C to #282828)
         ctx.fillGradient(x + 4, y + 4, x + w - 4, y + h - 4, 0xFF3C3C3C, 0xFF282828);
+
+        // 6. Inset Highlight Top/Left (Matches CSS: inset 2px 2px 0px rgba(255, 255, 255, 0.1))
+        // 0x1AFFFFFF is roughly 10% opacity white
+        ctx.fill(x + 4, y + 4, x + w - 4, y + 6, 0x1AFFFFFF); // Top inner
+        ctx.fill(x + 4, y + 4, x + 6, y + h - 4, 0x1AFFFFFF); // Left inner
+
+        // 7. Inset Shadow Bottom/Right (Matches CSS: inset -2px -2px 0px rgba(0, 0, 0, 0.5))
+        // 0x80000000 is 50% opacity black
+        ctx.fill(x + 4, y + h - 6, x + w - 4, y + h - 4, 0x80000000); // Bottom inner
+        ctx.fill(x + w - 6, y + 4, x + w - 4, y + h - 4, 0x80000000); // Right inner
+    }
+
+    public static void drawMinecraftButton(DrawContext ctx, int x, int y, int w, int h, boolean hovered) {
+        // 1. Crisp black outline
+        ctx.fill(x - 1, y - 1, x + w + 1, y + h + 1, 0xFF000000);
+
+        // 2. Dark gray base / Bottom-Right border (#373737)
+        ctx.fill(x, y, x + w, y + h, 0xFF373737);
+
+        // 3. Light gray Top-Left border (#8B8B8B) - 2px thick for buttons
+        int border = 2;
+        ctx.fill(x, y, x + w - border, y + h - border, hovered ? 0xFFAFAFAF : 0xFF8B8B8B);
+
+        // 4. Main background gradient (#3C3C3C to #282828)
+        ctx.fillGradient(x + border, y + border, x + w - border, y + h - border,
+                hovered ? 0xFF4C4C4C : 0xFF3C3C3C,
+                hovered ? 0xFF383838 : 0xFF282828);
+
+        // 5. Inset Highlight Top/Left
+        ctx.fill(x + border, y + border, x + w - border, y + border + 1, 0x1AFFFFFF);
+        ctx.fill(x + border, y + border, x + border + 1, y + h - border, 0x1AFFFFFF);
+
+        // 6. Inset Shadow Bottom/Right
+        ctx.fill(x + border, y + h - border - 1, x + w - border, y + h - border, 0x40000000);
+        ctx.fill(x + w - border - 1, y + border, x + w - border, y + h - border, 0x40000000);
+    }
+
+    public static void drawMinecraftCard(DrawContext ctx, int x, int y, int w, int h, boolean active) {
+        // 1. Black outline (Ensuring all sides are covered)
+        ctx.fill(x - 1, y - 1, x + w + 1, y + h + 1, 0xFF000000);
+        
+        // 2. Base border / Shadow
+        ctx.fill(x, y, x + w, y + h, active ? 0xFFFFFFFF : 0xFF373737);
+        
+        // 3. Thinner highlight border (2px)
+        int border = 2;
+        ctx.fill(x, y, x + w - border, y + h - border, active ? 0xFFAFAFAF : 0xFF8B8B8B);
+        
+        // 4. Brighter background gradient
+        int startCol = active ? 0xFF707070 : 0xFF4C4C4C;
+        int endCol   = active ? 0xFF505050 : 0xFF333333;
+        ctx.fillGradient(x + border, y + border, x + w - border, y + h - border, startCol, endCol);
     }
 
     public static void drawMinecraftRect(DrawContext ctx, int x, int y, int w, int h) {

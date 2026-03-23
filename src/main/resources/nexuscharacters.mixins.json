@@ -4,7 +4,8 @@
 	"compatibilityLevel": "JAVA_21",
 	"mixins": [
 		"PlayerManagerMixin",
-		"PlayerManagerAccessor"
+		"PlayerManagerAccessor",
+		"ServerPlayerEntityMixin"
 	],
 	"injectors": {
 		"defaultRequire": 1

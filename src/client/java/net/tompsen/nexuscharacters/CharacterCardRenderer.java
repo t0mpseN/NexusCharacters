@@ -12,25 +12,20 @@ public class CharacterCardRenderer {
     public static final int CARD_H = 54;
 
     public static void drawCard(DrawContext ctx, TextRenderer tr, CharacterDto c,
-                                int x, int y, boolean isHovered) {
+                                int x, int y, boolean highlight) {
 
-        int bgColorStart = isHovered ? 0xFF64648C : 0xFF505050;
-        int bgColorEnd   = isHovered ? 0xFF505078 : 0xFF3C3C3C;
-        int borderColorTopLeft = isHovered ? 0xFFC0C0E0 : 0xFFA0A0A0;
-        int borderColorBottomRight = isHovered ? 0xFF6666CC : 0xFF555555;
+        CharacterUiHelper.drawMinecraftCard(ctx, x, y, CARD_W, CARD_H, highlight);
 
-        if (isHovered) {
-            ctx.fill(x - 2, y - 2, x + CARD_W + 2, y + CARD_H + 2, 0x446666CC);
-        }
-
-        ctx.fill(x, y, x + CARD_W, y + CARD_H, borderColorBottomRight);
-        ctx.fill(x, y, x + CARD_W - 3, y + CARD_H - 3, borderColorTopLeft);
-        ctx.fillGradient(x + 3, y + 3, x + CARD_W - 3, y + CARD_H - 3, bgColorStart, bgColorEnd);
+        // Face Border (Matching card style)
+        int faceX = x + 8, faceY = y + 7, faceSize = 40;
+        ctx.fill(faceX - 2, faceY - 2, faceX + faceSize + 2, faceY + faceSize + 2, 0xFF000000); // Black outline
+        ctx.fill(faceX - 1, faceY - 1, faceX + faceSize + 1, faceY + faceSize + 1, highlight ? 0xFFFFFFFF : 0xFF8B8B8B); // Border
+        ctx.fill(faceX, faceY, faceX + faceSize, faceY + faceSize, 0xFF222222); // Inner bg
 
         SkinTextures skinTextures = DummyPlayerManager.getSkinTextures(c);
         Identifier skin = skinTextures.texture();
-        ctx.drawTexture(skin, x + 8, y + 7, 40, 40, 8, 8, 8, 8, 64, 64);
-        ctx.drawTexture(skin, x + 8, y + 7, 40, 40, 40, 8, 8, 8, 64, 64);
+        ctx.drawTexture(skin, faceX, faceY, faceSize, faceSize, 8, 8, 8, 8, 64, 64);
+        ctx.drawTexture(skin, faceX, faceY, faceSize, faceSize, 40, 8, 8, 8, 64, 64);
 
         // Name
         Text nameTxt = Text.literal(c.name()).setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterUiHelper.CUSTOM_FONT)).formatted(Formatting.WHITE);

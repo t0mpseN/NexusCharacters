@@ -40,7 +40,8 @@ public class CharacterCreationScreen extends Screen {
         int vh = (int) (height / scale);
 
         int cx = vw / 2;
-        int py = vh / 2 - 100;
+        int cy = vh / 2;
+        int py = cy - 100;
 
         nameField = new TextFieldWidget(textRenderer, cx - 100, py + 40, 200, 20, Text.literal("Name"));
         nameField.setPlaceholder(Text.literal("Character name..."));
@@ -60,10 +61,10 @@ public class CharacterCreationScreen extends Screen {
                 });
         addDrawableChild(gmButton);
 
-        addDrawableChild(ButtonWidget.builder(Text.literal("Create").setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterUiHelper.CUSTOM_FONT)), btn -> confirm())
-                .dimensions(cx - 100, py + 170, 95, 20).build());
-        addDrawableChild(ButtonWidget.builder(Text.literal("Cancel").setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterUiHelper.CUSTOM_FONT)), btn -> client.setScreen(parent))
-                .dimensions(cx + 5, py + 170, 95, 20).build());
+        addDrawableChild(new RetroButtonWidget(cx - 100, py + 170, 95, 20,
+                Text.literal("Create").setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterUiHelper.CUSTOM_FONT)), btn -> confirm()));
+        addDrawableChild(new RetroButtonWidget(cx + 5, py + 170, 95, 20,
+                Text.literal("Cancel").setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterUiHelper.CUSTOM_FONT)), btn -> client.setScreen(parent)));
     }
 
     private void confirm() {

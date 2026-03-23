@@ -1,8 +1,5 @@
 package net.tompsen.nexuscharacters;
 
-import com.google.gson.JsonElement;
-import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.font.TextRenderer;
 import net.minecraft.client.gui.DrawContext;
@@ -10,10 +7,7 @@ import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.screen.ingame.InventoryScreen;
 import net.minecraft.client.gui.widget.ButtonWidget;
 import net.minecraft.client.network.OtherClientPlayerEntity;
-import net.minecraft.client.render.Camera;
-import net.minecraft.client.render.entity.EntityRenderDispatcher;
 import net.minecraft.item.ItemStack;
-import net.minecraft.item.Items;
 import net.minecraft.nbt.NbtCompound;
 import net.minecraft.nbt.NbtList;
 import net.minecraft.text.OrderedText;
@@ -22,10 +16,8 @@ import net.minecraft.util.Formatting;
 import net.minecraft.util.Identifier;
 import net.minecraft.util.math.MathHelper;
 
-import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 
 import static net.tompsen.nexuscharacters.CharacterCardRenderer.CARD_W;
@@ -36,6 +28,9 @@ public class NexusCharactersScreen extends Screen {
     private int hoveredIndex = -1;
     private double scrollAmount = 0;
     private final int stride = CharacterCardRenderer.CARD_H + 6;
+    private boolean isSwitchingScreen = false;
+    private ModelToggleButton equipmentToggle;
+    private ModelToggleButton rotateToggle;
 
     public NexusCharactersScreen(Screen parent, Runnable onConfirm) {
         super(Text.literal("Select Character"));
@@ -49,6 +44,7 @@ public class NexusCharactersScreen extends Screen {
 
     @Override
     protected void init() {
+        isSwitchingScreen = false;
         DummyPlayerManager.invalidateDummies();
         refreshList();
     }
@@ -60,20 +56,43 @@ public class NexusCharactersScreen extends Screen {
         int vw = (int) (width / scale);
         int vh = (int) (height / scale);
 
-        int cw = CARD_W + 40;
+        int cwValue = CARD_W + 40;
         int ch = 4 * stride + 100;
-        int cx = vw / 2 - cw / 2;
+        int cx = vw / 2 - cwValue / 2;
         int cy = vh / 2 - ch / 2;
 
-        addDrawableChild(ButtonWidget.builder(Text.literal("<").setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterUiHelper.CUSTOM_FONT)),
-                        btn -> this.close())
-                .dimensions(cx + 8, cy + 8, 20, 20).build());
+        addDrawableChild(new RetroButtonWidget(cx + 8, cy + 8, 20, 20, 
+                        Text.literal("<").setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterUiHelper.CUSTOM_FONT)),
+                        btn -> this.close()));
 
         int btnHeight = 26;
         int buttonsY = cy + ch - 16 - btnHeight;
-        addDrawableChild(ButtonWidget.builder(Text.literal("+ Add Character").setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterUiHelper.CUSTOM_FONT)),
-                        btn -> client.setScreen(new CharacterCreationScreen(this, () -> { clearChildren(); refreshList(); })))
-                .dimensions(cx + 20, buttonsY, cw - 40, btnHeight).build());
+        addDrawableChild(new RetroButtonWidget(cx + 20, buttonsY, cwValue - 40, btnHeight,
+                        Text.literal("+ Add Character").setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterUiHelper.CUSTOM_FONT)),
+                        btn -> {
+                            this.isSwitchingScreen = true;
+                            client.setScreen(new CharacterCreationScreen(this, () -> { 
+                                this.isSwitchingScreen = false;
+                                clearChildren(); 
+                                refreshList(); 
+                            }));
+                        }));
+
+        // Model Toggle Buttons
+        int pw = 220;
+        int px = cx - pw - 12;
+        int py = cy;
+        int boxH = ch - 52;
+        int btnY = py + 36 + boxH - 24;
+
+        equipmentToggle = addDrawableChild(new ModelToggleButton(px + 20, btnY, Identifier.of("minecraft", "textures/item/iron_helmet.png"),
+                () -> CharacterUiHelper.showEquipment, val -> CharacterUiHelper.showEquipment = val));
+
+        rotateToggle = addDrawableChild(new ModelToggleButton(px + 44, btnY, Identifier.of("minecraft", "textures/item/compass_00.png"),
+                () -> CharacterUiHelper.autoRotate, val -> CharacterUiHelper.autoRotate = val));
+        
+        equipmentToggle.visible = false;
+        rotateToggle.visible = false;
     }
 
     @Override
@@ -96,11 +115,11 @@ public class NexusCharactersScreen extends Screen {
 
         List<CharacterDto> characters = NexusCharacters.DATA_FILE_MANAGER.characterList;
 
-        int cw = CARD_W + 40, ch = 4 * stride + 100;
-        int cx = vw / 2 - cw / 2, cy = vh / 2 - ch / 2;
+        int cwValue = CARD_W + 40, ch = 4 * stride + 100;
+        int cx = vw / 2 - cwValue / 2, cy = vh / 2 - ch / 2;
         int listX = cx + 20, listY = cy + 40;
 
-        CharacterUiHelper.drawMinecraftPanel(ctx, cx, cy, cw, ch);
+        CharacterUiHelper.drawMinecraftPanel(ctx, cx, cy, cwValue, ch);
         CharacterUiHelper.drawScaledTitle(ctx, textRenderer, "SELECT CHARACTER", vw / 2, cy + 16, 1.2f, 0xFFFFFF);
 
         int maxScroll = Math.max(0, characters.size() * stride - (4 * stride));
@@ -126,20 +145,6 @@ public class NexusCharactersScreen extends Screen {
 
             boolean highlight = (i == hoveredIndex);
             CharacterCardRenderer.drawCard(ctx, textRenderer, characters.get(i), listX, cardY, highlight);
-
-            int btnY = cardY + 27; // Aligned with bottom of face (y+7+40 = y+47, button is 20h, so y+47-20 = y+27)
-
-            int delX = listX + CARD_W - 28;
-            boolean delHovered = isHovered && smX >= delX && smX <= delX + 20 && smY >= btnY && smY <= btnY + 20;
-            ctx.fill(delX, btnY, delX + 20, btnY + 20, delHovered ? 0xFF995555 : 0xFF774444);
-            ctx.drawBorder(delX, btnY, 20, 20, 0xFF222222);
-            ctx.drawTexture(CharacterUiHelper.TRASH_ICON, delX + 2, btnY + 2, 0, 0, 16, 16, 16, 16);
-
-            int editX = delX - 24;
-            boolean editHovered = isHovered && smX >= editX && smX <= editX + 20 && smY >= btnY && smY <= btnY + 20;
-            ctx.fill(editX, btnY, editX + 20, btnY + 20, editHovered ? 0xFF999999 : 0xFF777777);
-            ctx.drawBorder(editX, btnY, 20, 20, 0xFF222222);
-            ctx.drawTexture(CharacterUiHelper.EDIT_ICON, editX + 2, btnY + 2, 0, 0, 16, 16, 16, 16);
         }
 
         ctx.disableScissor();
@@ -158,19 +163,29 @@ public class NexusCharactersScreen extends Screen {
             CharacterUiHelper.drawRetroText(ctx, textRenderer, emptyTxt, vw / 2 - textRenderer.getWidth(emptyTxt) / 2, listY + 20, 0x666666);
         }
 
-        for (net.minecraft.client.gui.Element child : this.children()) {
-            if (child instanceof net.minecraft.client.gui.Drawable drawable) {
-                drawable.render(ctx, smX, smY, delta);
-            }
-        }
-
         ItemStack tooltipItem = ItemStack.EMPTY;
 
         if (hoveredIndex >= 0 && hoveredIndex < characters.size()) {
             CharacterDto activeChar = characters.get(hoveredIndex);
             drawLeftPanel(ctx, activeChar, cx, cy, ch, smX, smY);
-            tooltipItem = drawRightPanel(ctx, textRenderer, activeChar, cx + cw, cy, ch, smX, smY);
+            tooltipItem = drawRightPanel(ctx, textRenderer, activeChar, cx + cwValue, cy, ch, smX, smY);
+            if (equipmentToggle != null) equipmentToggle.visible = true;
+            if (rotateToggle != null) rotateToggle.visible = true;
+        } else {
+            if (equipmentToggle != null) equipmentToggle.visible = false;
+            if (rotateToggle != null) rotateToggle.visible = false;
         }
+
+        // Render children last, on top
+        ctx.getMatrices().push();
+        ctx.getMatrices().translate(0, 0, 200);
+        for (net.minecraft.client.gui.Element child : this.children()) {
+            if (child instanceof net.minecraft.client.gui.Drawable drawable) {
+                if (drawable instanceof net.minecraft.client.gui.widget.ClickableWidget widget && !widget.visible) continue;
+                drawable.render(ctx, smX, smY, delta);
+            }
+        }
+        ctx.getMatrices().pop();
 
         ctx.getMatrices().pop();
 
@@ -185,37 +200,26 @@ public class NexusCharactersScreen extends Screen {
 
         if (button == 0) {
             List<CharacterDto> characters = NexusCharacters.DATA_FILE_MANAGER.characterList;
-            int vw = (int) (width / scale), vh = (int) (height / scale);
-            int cw = CARD_W + 40, ch = 4 * stride + 100;
-            int cx = vw / 2 - cw / 2, cy = vh / 2 - ch / 2;
+            int vw = (int) (width / scale);
+            int vh = (int) (height / scale);
+            int cwValue = CARD_W + 40, ch = 4 * stride + 100;
+            int cx = vw / 2 - cwValue / 2, cy = vh / 2 - ch / 2;
             int listX = cx + 20, listY = cy + 40;
+
+            if (equipmentToggle != null && equipmentToggle.visible && equipmentToggle.mouseClicked(smX, smY, button)) return true;
+            if (rotateToggle != null && rotateToggle.visible && rotateToggle.mouseClicked(smX, smY, button)) return true;
 
             if (smX >= listX && smX <= listX + CARD_W && smY >= listY && smY <= listY + 4 * stride) {
                 double adjustedY = smY - listY + scrollAmount;
                 int clickedIndex = (int) (adjustedY / stride);
 
                 if (clickedIndex >= 0 && clickedIndex < characters.size()) {
-                    int cardY = (int) (listY + clickedIndex * stride - scrollAmount);
-                    int btnY = cardY + 27; // Aligned with bottom of face
-                    int delX = listX + CARD_W - 28, editX = delX - 24;
                     CharacterDto chDto = characters.get(clickedIndex);
-
-                    if (smX >= delX && smX <= delX + 20 && smY >= btnY && smY <= btnY + 20) {
-                        client.setScreen(new ConfirmDeleteScreen(this, chDto.name(), () -> {
-                            NexusCharacters.DATA_FILE_MANAGER.deleteCharacter(chDto.id());
-                            refreshList();
-                        }));
-                        return true;
-                    }
-
-                    if (smX >= editX && smX <= editX + 20 && smY >= btnY && smY <= btnY + 20) {
-                        client.setScreen(new CharacterEditScreen(this, chDto, this::refreshList));
-                        return true;
-                    }
-
                     NexusCharacters.selectedCharacter = chDto;
                     UUID uuid = MinecraftClient.getInstance().getSession().getUuidOrNull();
                     if (uuid != null) NexusCharacters.DATA_FILE_MANAGER.saveLastUsed(uuid, chDto.id());
+                    
+                    this.isSwitchingScreen = true;
                     client.setScreen(null);
                     onConfirm.run();
                     return true;
@@ -259,8 +263,26 @@ public class NexusCharactersScreen extends Screen {
         OtherClientPlayerEntity dummy = DummyPlayerManager.getDummyPlayer(c);
         if (dummy != null) {
             CharacterUiHelper.injectCameraIfNeeded(client);
-            dummy.age = 20;
-            InventoryScreen.drawEntity(ctx, boxX + 6, boxY + 16, boxX + boxW - 6, boxY + boxH - 10, 60, 0.0625F, (float)mouseX, (float)mouseY, dummy);
+
+            // Fixed rotation: Full 360 loop, looking straight ahead
+            float angle = (System.currentTimeMillis() % 5000) / 5000.0f * (float)Math.PI * 2.0f;
+            float centerX = boxX + boxW / 2f;
+            float targetX = centerX + (float)Math.sin(angle) * 100f;
+            float targetY = boxY + boxH / 2f;
+
+            float entityX = CharacterUiHelper.autoRotate ? targetX : (float)mouseX;
+            float entityY = CharacterUiHelper.autoRotate ? targetY : (float)mouseY;
+
+            // Equipment toggle
+            if (!CharacterUiHelper.showEquipment) {
+                dummy.getInventory().armor.forEach(stack -> stack.setCount(0));
+                dummy.getInventory().offHand.forEach(stack -> stack.setCount(0));
+                dummy.getInventory().main.forEach(stack -> stack.setCount(0));
+            } else {
+                DummyPlayerManager.invalidateDummies();
+            }
+
+            InventoryScreen.drawEntity(ctx, boxX + 6, boxY + 16, boxX + boxW - 6, boxY + boxH - 10, 60, 0.0625F, entityX, entityY, dummy);
         }
     }
 
@@ -288,7 +310,7 @@ public class NexusCharactersScreen extends Screen {
         }
 
         int hotbarY = py + 40;
-        ctx.drawTexture(Identifier.of("minecraft", "textures/item/iron_pickaxe.png"), startX - 18, hotbarY + 2, 0, 0, 16, 16, 16, 16);
+        ctx.drawTexture(Identifier.of("nexuscharacters", "textures/gui/pickaxe-placeholder.png"), startX - 18, hotbarY + 2, 0, 0, 16, 16, 16, 16);
         for (int i = 0; i < 9; i++) {
             int sx = startX + i * (slotSize + gap);
             CharacterUiHelper.drawMinecraftRect(ctx, sx, hotbarY, slotSize, slotSize);
@@ -396,9 +418,10 @@ public class NexusCharactersScreen extends Screen {
         CharacterUiHelper.drawRetroText(ctx, tr, stat2, col1, extraY + 14, 0xFFFFFF);
         CharacterUiHelper.drawRetroText(ctx, tr, stat3, col1, extraY + 28, 0xFFFFFF);
 
+
         CharacterUiHelper.AdvancementInfo latestAdv = CharacterUiHelper.getLatestAdvancement(c);
 
-        int badgeH = 64;
+        int badgeH = 72;
         int badgeW = pw - 32;
         int badgeX = px + 16;
         int badgeY = py + ph - 16 - badgeH;
@@ -411,36 +434,52 @@ public class NexusCharactersScreen extends Screen {
         ctx.fill(px + 16, div2Y + 2, px + pw - 16, div2Y + 4, 0xFF222222);
 
         if (latestAdv != null) {
-            ctx.fill(badgeX, badgeY, badgeX + badgeW, badgeY + badgeH, 0xFF1A1A1A);
-            ctx.drawBorder(badgeX, badgeY, badgeW, badgeH, 0xFF555555);
+            CharacterUiHelper.drawMinecraftPanel(ctx, badgeX, badgeY, badgeW, badgeH);
 
-            int headerH = 24;
-            ctx.fill(badgeX + 1, badgeY + 1, badgeX + badgeW - 1, badgeY + headerH, 0xFFC08811);
-            ctx.fill(badgeX + 1, badgeY + 1, badgeX + 24, badgeY + headerH, 0xFFA0700A);
-            ctx.fill(badgeX + 24, badgeY + 1, badgeX + 25, badgeY + headerH, 0xFF555555);
+            int headerH = 20;
+            int titleBarCol = 0xFFC08811;
+            // Full width title bar matching container outline (2px black)
+            ctx.fill(badgeX - 2, badgeY, badgeX + badgeW + 2, badgeY + headerH, 0xFF000000);
+            ctx.fill(badgeX, badgeY + 1, badgeX + badgeW, badgeY + headerH - 1, titleBarCol);
+            ctx.fill(badgeX, badgeY + headerH - 2, badgeX + badgeW, badgeY + headerH - 1, 0x40000000);
+
+            int iconBoxSize = 30;
+            int iconBoxX = badgeX - 4;
+            int iconBoxY = badgeY - 4;
+            
+            // Rounded corners icon box with 2px thicker outline
+            ctx.fill(iconBoxX - 2, iconBoxY, iconBoxX + iconBoxSize + 2, iconBoxY + iconBoxSize, 0xFF000000);
+            ctx.fill(iconBoxX, iconBoxY - 2, iconBoxX + iconBoxSize, iconBoxY + iconBoxSize + 2, 0xFF000000);
+            
+            // Gold border
+            ctx.fill(iconBoxX + 1, iconBoxY, iconBoxX + iconBoxSize - 1, iconBoxY + iconBoxSize, titleBarCol);
+            ctx.fill(iconBoxX, iconBoxY + 1, iconBoxX + iconBoxSize, iconBoxY + iconBoxSize - 1, titleBarCol);
+            
+            // Inner gold background
+            ctx.fill(iconBoxX + 2, iconBoxY + 2, iconBoxX + iconBoxSize - 2, iconBoxY + iconBoxSize - 2, 0xFFD4AF37);
 
             ctx.getMatrices().push();
-            ctx.getMatrices().translate(badgeX + 4, badgeY + 4, 0);
+            ctx.getMatrices().translate(iconBoxX + 3, iconBoxY + 3, 100);
+            ctx.getMatrices().scale(1.5f, 1.5f, 1.0f);
             ctx.drawItem(latestAdv.icon(), 0, 0);
             ctx.getMatrices().pop();
 
             Text titleTxt = Text.literal(latestAdv.title()).setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterUiHelper.CUSTOM_FONT)).formatted(Formatting.WHITE);
-            CharacterUiHelper.drawRetroText(ctx, tr, titleTxt, badgeX + 28, badgeY + 8, 0xFFFFFF);
+            CharacterUiHelper.drawRetroText(ctx, tr, titleTxt, badgeX + iconBoxSize - 4, badgeY + 6, 0xFFFFFF);
 
             Text descText = Text.literal(latestAdv.description()).setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterUiHelper.CUSTOM_FONT));
-            List<OrderedText> lines = tr.wrapLines(descText, badgeW - 8);
+            List<OrderedText> lines = tr.wrapLines(descText, badgeW - 20);
 
-            int lineY = badgeY + headerH + 4;
+            int lineY = badgeY + headerH + 10;
             for (int i = 0; i < lines.size() && i < 3; i++) {
                 OrderedText line = lines.get(i);
-                ctx.drawText(tr, line, badgeX + 4 + 1, lineY + 1, 0xFF000000, false);
-                ctx.drawText(tr, line, badgeX + 4, lineY, 0xFF55FF55, false);
+                ctx.drawText(tr, line, badgeX + 8 + 1, lineY + 1, 0xFF000000, false);
+                ctx.drawText(tr, line, badgeX + 8, lineY, 0xFF55FF55, false);
                 lineY += 10;
             }
 
         } else {
-            ctx.fill(badgeX, badgeY, badgeX + badgeW, badgeY + badgeH, 0xFF1A1A1A);
-            ctx.drawBorder(badgeX, badgeY, badgeW, badgeH, 0xFF555555);
+            CharacterUiHelper.drawMinecraftPanel(ctx, badgeX, badgeY, badgeW, badgeH);
             Text noAdv = Text.literal("No advancements yet").setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterUiHelper.CUSTOM_FONT)).formatted(Formatting.DARK_GRAY);
             CharacterUiHelper.drawRetroText(ctx, tr, noAdv, badgeX + (badgeW - tr.getWidth(noAdv)) / 2, badgeY + (badgeH / 2) - 4, 0xFFFFFF);
         }
@@ -448,9 +487,27 @@ public class NexusCharactersScreen extends Screen {
         return hoveredItem;
     }
 
-    @Override public boolean shouldCloseOnEsc() { return true; }
-    @Override public void close() {
-        DummyPlayerManager.clearCache();
-        client.setScreen(parent);
+    @Override
+    public boolean shouldCloseOnEsc() {
+        return false;
+    }
+
+    @Override
+    public void removed() {
+        if (!isSwitchingScreen && NexusCharacters.selectedCharacter == null && client.getNetworkHandler() != null) {
+            client.getNetworkHandler().getConnection().disconnect(net.minecraft.text.Text.literal("You must select a character to play."));
+        }
+        super.removed();
+    }
+
+    @Override
+    public void close() {
+        if (parent != null) {
+            this.isSwitchingScreen = true;
+            DummyPlayerManager.clearCache();
+            client.setScreen(parent);
+        } else {
+            this.removed();
+        }
     }
 }

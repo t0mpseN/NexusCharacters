@@ -11,4 +11,7 @@ import java.util.UUID;
 public interface PlayerManagerAccessor {
     @Accessor("advancementTrackers")
     Map<UUID, PlayerAdvancementTracker> getAdvancementTrackers();
+
+    @Accessor("statisticsMap")
+    Map<UUID, net.minecraft.stat.ServerStatHandler> getStatHandlers();
 }
