@@ -1,9 +1,9 @@
 <div align="center">
   <img src="src/main/resources/assets/nexuscharacters/icon-round.png" alt="NexusCharactersIcon" width="360">
-  <br></br> 
+  <br/>
 
-  <img width="517" height="108" alt="4" src="https://github.com/user-attachments/assets/891d0091-3a96-4b7e-ae58-27b46c3ee65f" />
-  <br></br>
+  <img width="517" height="139" alt="4" src="https://github.com/user-attachments/assets/3fd576f0-d44f-4811-bf29-f85756534a85" />
+  <br/>
   
   [![Release](https://img.shields.io/github/v/release/t0mpseN/NexusCharacters?label=Latest%20Release&color=blue)](#)
   [![ModLoader](https://img.shields.io/badge/ModLoader-Fabric-lightgrey)](#)
