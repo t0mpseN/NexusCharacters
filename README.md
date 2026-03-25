@@ -6,7 +6,10 @@
 [![ModLoader](https://img.shields.io/badge/ModLoader-Fabric-lightgrey)](#)
 </div>
 
-> 🚧 **WORK IN PROGRESS:** Nexus is currently in active, early development. As a solo passion project, please expect to encounter some bugs, rough edges, and incomplete features. Your patience and feedback are incredibly appreciated as I continue to refine the app!
+# 🪐 Nexus Characters — Cross-World Progression
+
+> [!NOTE]
+> 🚧 **WORK IN PROGRESS:** Nexus is currently in active, early development. As a solo passion project, please expect to encounter some bugs, rough edges, and incomplete features. Your patience and feedback are incredibly appreciated as I continue to refine the mod!
 
 <br/>
 
@@ -26,16 +29,17 @@
 
 </details>
 
-# 🪐 Nexus Characters — Cross-World Progression
+<br/>
 
 Welcome to **Nexus Characters**! This mod fundamentally changes how you experience Minecraft by shifting the focus from world-bound progression to character-bound progression.
 
 Instead of starting from scratch every time you create a new world, Nexus Characters allows you to seamlessly carry your inventory, stats, and identity across all your single-player saves and multiplayer servers. Build your character, explore infinite worlds, and never lose your hard-earned progress again.
 
+<br/>
+
 ## ✨ Core Features
 
 ### 👤 Character Creation
-
 Create unique identities for your different playthroughs. When making a new character, you have complete control over their identity and playstyle:
 
 - **Custom Naming:** Give your character a unique identity.
@@ -44,9 +48,9 @@ Create unique identities for your different playthroughs. When making a new char
 
 ![Character Creation](demo/character_creation.gif)
 
+<br/>
 
 ### 🌉 Cross-World Progression
-
 Your character's journey doesn't end when you leave a world. Everything that defines your character travels with them:
 
 - Health and hunger stats
@@ -54,8 +58,9 @@ Your character's journey doesn't end when you leave a world. Everything that def
 - Full inventory and equipped armor
 - Advancements and statistics
 
-![Character Creation](demo/hardcore_death.gif)
+![Character Creation](demo/concept.gif)
 
+<br/>
 
 ### <a id="hardcore-characters"></a>⚠️ Hardcore Characters
 
@@ -64,8 +69,9 @@ Love the thrill of Hardcore but hate losing a beautiful world you spent hours bu
 - If your Hardcore Character dies, they are permanently erased from your character list.
 - **The World Survives:** The world they died in remains perfectly intact. You can roll a brand-new character, travel to that same world, and find your fallen character's base (or avenge them!).
 
-![Character Creation](demo/concept.gif)
+![Character Creation](demo/hardcore_death.gif)
 
+<br/>
 
 ## 🚀 Extended Capabilities
 
@@ -77,20 +83,22 @@ Nexus Characters doesn't just save vanilla data. It integrates deeply with your 
 
 Take your characters online! Nexus Characters is fully compatible with dedicated servers. Server owners can install the mod to allow players to bring their cross-world characters into the community, or restrict servers to specific character types.
 
+<br/>
 
 ## <a id="installation-setup"></a>🛠️ Installation & Setup
-
+> [!IMPORTANT]
+> **Note:** Make sure you are using Fabric as your mod loader and Minecraft 1.21.1.
 1. Download the latest version of **Nexus Characters** from the [releases](https://github.com/t0mpseN/NexusCharacters/releases) page
 2. Drop the `.jar` file into your Minecraft `mods` folder (same thing for servers)
 3. Launch the game and access the new **"Characters"** menu from the title screen
 
-> **Note:** Make sure you are using Fabric as your mod loader and Minecraft 1.21.1.
-
+<br/>
 
 ## 🤝 Feedback and Support
 
-Found a bug or have a feature request? Please open an issue on the [GitHub Issues tab](https://github.com/t0mpseN/NexusCharacters/issues) or send me an [email](mailto:pedrotbandel@gmail.com). I am always looking for ways to improve the study experience!
+Found a bug or have a feature request? Please open an issue on the [GitHub Issues tab](https://github.com/t0mpseN/NexusCharacters/issues) or send me an [email](mailto:pedrotbandel@gmail.com). I am always looking for ways to improve the user experience!
 
+<br/>
 
 ## 📄 License
 
