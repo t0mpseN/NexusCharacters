@@ -152,6 +152,7 @@ public class NexusCharactersNetwork {
         PayloadTypeRegistry.playS2C().register(VaultChunkS2CPayload.ID,           VaultChunkS2CPayload.CODEC);
         PayloadTypeRegistry.playS2C().register(VaultTransferDoneS2CPayload.ID,    VaultTransferDoneS2CPayload.CODEC);
         PayloadTypeRegistry.playS2C().register(VaultSyncPayload.ID,               VaultSyncPayload.CODEC);
+        PayloadTypeRegistry.playS2C().register(CharacterDeletedPayload.ID,        CharacterDeletedPayload.CODEC);
 
         // ── Configuration-phase server event ──────────────────────────────────
         // On dedicated servers only: add a task that blocks the player from entering

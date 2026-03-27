@@ -34,8 +34,8 @@ public class NexusCharacters implements ModInitializer {
 	public static final Map<UUID, CharacterDto> pendingCharacters = new ConcurrentHashMap<>();
 	/** Ticks between per-second incremental vault syncs (20 ticks = 1 second). */
 	private static final int VAULT_SYNC_INTERVAL_TICKS = 20;
-	/** Ticks between advancements syncs (600 ticks = 30 seconds). */
-	private static final int ADVANCEMENTS_SYNC_INTERVAL_TICKS = 600;
+	/** Ticks between advancements + pokedex syncs. Configurable via /nexus saveinterval. Default 30 s. */
+	public static volatile int ADVANCEMENTS_SYNC_INTERVAL_TICKS = 600;
 
 
 	public static CharacterDto getSelectedCharacter(ServerPlayerEntity player) {
@@ -130,7 +130,15 @@ public class NexusCharacters implements ModInitializer {
 				return;
 			}
 
-			final CharacterDto charToSave = current;
+			// Sync gameMode from live player state so the card shows the correct mode next session.
+			int liveGameMode = player.interactionManager.getGameMode().getId();
+			final CharacterDto charToSave = liveGameMode != current.gameMode()
+					? new CharacterDto(current.id(), current.name(), current.skinValue(),
+							current.skinSignature(), current.skinUsername(), liveGameMode, current.hardcore())
+					: current;
+			if (liveGameMode != current.gameMode()) {
+				DATA_FILE_MANAGER.updateCharacter(charToSave);
+			}
 			LOGGER.info("[Nexus] DISCONNECT: saving vault for {} char={} ({}).",
 					player.getName().getString(), charToSave.name(), charToSave.id());
 
@@ -215,6 +223,12 @@ public class NexusCharacters implements ModInitializer {
 				final UUID charId = character.id();
 				final boolean includeAdvancements = syncAdvancements;
 
+				// Save current position to vault every second so join always lands correctly.
+				String worldId = CharacterDataManager.getWorldId(player);
+				VaultManager.saveWorldPosition(charId, worldId,
+						player.getX(), player.getY(), player.getZ(),
+						player.getYaw(), player.getPitch());
+
 				// Flush all player data to disk now (on server tick thread) so the
 				// background thread reads fresh files — including mod data (Cobblemon etc.)
 				// that only persists to disk when explicitly saved.
@@ -267,8 +281,31 @@ public class NexusCharacters implements ModInitializer {
 					deadHardcorePlayers.add(player.getUuid());
 					DATA_FILE_MANAGER.deleteCharacter(ch.id());
 					clearSelectedCharacter(player);
+					// Notify the client to remove it from its local list immediately.
+					if (player.server.isDedicated()
+							&& ServerPlayNetworking.canSend(player, CharacterDeletedPayload.ID)) {
+						ServerPlayNetworking.send(player, new CharacterDeletedPayload(ch.id()));
+					}
 				}
 			}
+		});
+
+		// /nexus saveinterval <seconds> — change how often advancements/pokedex are synced.
+		net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> {
+			dispatcher.register(
+				net.minecraft.server.command.CommandManager.literal("nexus")
+					.requires(src -> src.hasPermissionLevel(2))
+					.then(net.minecraft.server.command.CommandManager.literal("saveinterval")
+						.then(net.minecraft.server.command.CommandManager.argument("seconds",
+								com.mojang.brigadier.arguments.IntegerArgumentType.integer(1, 3600))
+							.executes(ctx -> {
+								int seconds = com.mojang.brigadier.arguments.IntegerArgumentType.getInteger(ctx, "seconds");
+								ADVANCEMENTS_SYNC_INTERVAL_TICKS = seconds * 20;
+								ctx.getSource().sendFeedback(() ->
+										net.minecraft.text.Text.literal("[Nexus] Advancements/pokedex sync interval set to "
+												+ seconds + "s (" + ADVANCEMENTS_SYNC_INTERVAL_TICKS + " ticks)."), true);
+								return 1;
+							}))));
 		});
 	}
 }

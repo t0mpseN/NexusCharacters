@@ -88,5 +88,13 @@ public class NexusCharactersClientNetwork {
                 VaultManager.applyVaultSync(payload.characterId(), payload.files());
             });
         });
+
+        // Server deleted a hardcore character (death) — remove it from local list immediately.
+        ClientPlayNetworking.registerGlobalReceiver(CharacterDeletedPayload.ID, (payload, ctx) -> {
+            ctx.client().execute(() -> {
+                NexusCharacters.DATA_FILE_MANAGER.deleteCharacter(payload.characterId());
+                NexusCharacters.LOGGER.info("[Client] Hardcore character {} deleted by server.", payload.characterId());
+            });
+        });
     }
 }

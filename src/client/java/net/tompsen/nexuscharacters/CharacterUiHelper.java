@@ -180,7 +180,6 @@ public class CharacterUiHelper {
 
         String latestId = null;
         String latestTime = "";
-        String latestCriteriaKey = null;
 
         try {
             JsonObject json = JsonParser.parseString(advJson).getAsJsonObject();
@@ -194,7 +193,6 @@ public class CharacterUiHelper {
                         if (time.compareTo(latestTime) > 0) {
                             latestTime = time;
                             latestId = id;
-                            latestCriteriaKey = crit.getKey();
                         }
                     }
                 }
@@ -207,7 +205,7 @@ public class CharacterUiHelper {
             MinecraftClient client = MinecraftClient.getInstance();
             Identifier advId = Identifier.tryParse(latestId);
 
-            // First try: live advancement manager (works while in-game)
+            // First try: live advancement manager (works while in-game, covers all mods)
             if (client.getNetworkHandler() != null && advId != null) {
                 var entry = client.getNetworkHandler().getAdvancementHandler().getManager().get(advId);
                 if (entry != null && entry.getAdvancementEntry().value().display().isPresent()) {
@@ -216,43 +214,105 @@ public class CharacterUiHelper {
                 }
             }
 
-            // Fallback: language file lookup (works for vanilla advancements when not in-game)
-            String title = latestId; // use raw id as last resort instead of "Advancement"
-            String desc = "";
-            ItemStack iconStack = new ItemStack(Items.MAP);
+            // Second try: read the advancement JSON from the resource pack (covers mod advancements)
+            if (advId != null) {
+                net.minecraft.resource.ResourceManager rm = client.getResourceManager();
+                Identifier resId = Identifier.of(advId.getNamespace(),
+                        "advancements/" + advId.getPath() + ".json");
+                try {
+                    var resource = rm.getResource(resId);
+                    if (resource.isPresent()) {
+                        try (var stream = resource.get().getInputStream()) {
+                            JsonObject advDef = JsonParser.parseString(new String(stream.readAllBytes())).getAsJsonObject();
+                            String title = null, desc = null;
+                            ItemStack icon = new ItemStack(Items.MAP);
 
+                            if (advDef.has("display")) {
+                                JsonObject display = advDef.getAsJsonObject("display");
+
+                                // Icon
+                                if (display.has("icon")) {
+                                    JsonObject iconObj = display.getAsJsonObject("icon");
+                                    String itemId = iconObj.has("id") ? iconObj.get("id").getAsString()
+                                            : iconObj.has("item") ? iconObj.get("item").getAsString() : null;
+                                    if (itemId != null) {
+                                        Identifier itemIdent = Identifier.tryParse(itemId);
+                                        if (itemIdent != null) {
+                                            net.minecraft.item.Item item = net.minecraft.registry.Registries.ITEM.get(itemIdent);
+                                            if (item != Items.AIR) icon = new ItemStack(item);
+                                        }
+                                    }
+                                }
+
+                                // Title and description — may be translation keys or literal text objects
+                                if (display.has("title")) title = resolveTextComponent(display.get("title"));
+                                if (display.has("description")) desc = resolveTextComponent(display.get("description"));
+                            }
+
+                            if (title == null) {
+                                // Fallback: language file
+                                net.minecraft.util.Language lang = net.minecraft.util.Language.getInstance();
+                                String pathDots = advId.getPath().replace('/', '.');
+                                String tk = "advancements." + pathDots + ".title";
+                                String dk = "advancements." + pathDots + ".description";
+                                String tk2 = "advancements." + advId.getNamespace() + "." + pathDots + ".title";
+                                String dk2 = "advancements." + advId.getNamespace() + "." + pathDots + ".description";
+                                if (lang.hasTranslation(tk)) { title = lang.get(tk); desc = lang.hasTranslation(dk) ? lang.get(dk) : ""; }
+                                else if (lang.hasTranslation(tk2)) { title = lang.get(tk2); desc = lang.hasTranslation(dk2) ? lang.get(dk2) : ""; }
+                                else { title = advId.getPath().substring(advId.getPath().lastIndexOf('/') + 1).replace('_', ' '); }
+                            }
+
+                            return new AdvancementInfo(
+                                    title != null ? title : latestId,
+                                    desc != null ? desc : "",
+                                    icon);
+                        }
+                    }
+                } catch (Exception ignored) {}
+            }
+
+            // Final fallback: language file only
+            String title = latestId;
+            String desc = "";
             if (advId != null) {
                 net.minecraft.util.Language lang = net.minecraft.util.Language.getInstance();
-
-                // Vanilla key format: advancements.<namespace>.<path_dots>.title
-                // e.g. minecraft:story/mine_stone → advancements.story.mine_stone.title
                 String pathDots = advId.getPath().replace('/', '.');
-                String vanillaTitleKey = "advancements." + pathDots + ".title";
-                String vanillaDescKey  = "advancements." + pathDots + ".description";
-
-                // Mod key format may also include namespace:
-                // e.g. cobblemon:cobblemon/starter → advancements.cobblemon.cobblemon.starter.title
-                String nsDots = advId.getNamespace() + "." + pathDots;
-                String modTitleKey = "advancements." + nsDots + ".title";
-                String modDescKey  = "advancements." + nsDots + ".description";
-
-                if (lang.hasTranslation(vanillaTitleKey)) {
-                    title = lang.get(vanillaTitleKey);
-                    desc  = lang.hasTranslation(vanillaDescKey) ? lang.get(vanillaDescKey) : "";
-                } else if (lang.hasTranslation(modTitleKey)) {
-                    title = lang.get(modTitleKey);
-                    desc  = lang.hasTranslation(modDescKey) ? lang.get(modDescKey) : "";
-                } else {
-                    // Format the raw id nicely: "cobblemon:cobblemon/catch_starter" → "Cobblemon: Catch Starter"
+                String tk = "advancements." + pathDots + ".title";
+                String dk = "advancements." + pathDots + ".description";
+                String tk2 = "advancements." + advId.getNamespace() + "." + pathDots + ".title";
+                String dk2 = "advancements." + advId.getNamespace() + "." + pathDots + ".description";
+                if (lang.hasTranslation(tk)) { title = lang.get(tk); desc = lang.hasTranslation(dk) ? lang.get(dk) : ""; }
+                else if (lang.hasTranslation(tk2)) { title = lang.get(tk2); desc = lang.hasTranslation(dk2) ? lang.get(dk2) : ""; }
+                else {
                     String rawPath = advId.getPath().substring(advId.getPath().lastIndexOf('/') + 1);
-                    title = rawPath.replace('_', ' ');
-                    title = Character.toUpperCase(title.charAt(0)) + title.substring(1);
+                    title = Character.toUpperCase(rawPath.charAt(0)) + rawPath.substring(1).replace('_', ' ');
                 }
             }
-            return new AdvancementInfo(title, desc, iconStack);
+            return new AdvancementInfo(title, desc, new ItemStack(Items.MAP));
         } catch (Exception e) {
             return null;
         }
+    }
+
+    /** Resolves a JSON text component (string key or {"translate":...} or {"text":...}) to a plain string. */
+    private static String resolveTextComponent(JsonElement el) {
+        if (el == null) return null;
+        if (el.isJsonPrimitive()) {
+            // bare string — might be a translation key or literal
+            String s = el.getAsString();
+            net.minecraft.util.Language lang = net.minecraft.util.Language.getInstance();
+            return lang.hasTranslation(s) ? lang.get(s) : s;
+        }
+        if (el.isJsonObject()) {
+            JsonObject obj = el.getAsJsonObject();
+            if (obj.has("translate")) {
+                String key = obj.get("translate").getAsString();
+                net.minecraft.util.Language lang = net.minecraft.util.Language.getInstance();
+                return lang.hasTranslation(key) ? lang.get(key) : key;
+            }
+            if (obj.has("text")) return obj.get("text").getAsString();
+        }
+        return null;
     }
 
     public record PlayerStatsInfo(int blocksMined, int mobKills, int diamonds, int playTime) {}
