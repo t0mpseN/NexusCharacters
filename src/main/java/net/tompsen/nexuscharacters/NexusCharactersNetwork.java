@@ -79,19 +79,26 @@ public class NexusCharactersNetwork {
 
         // Restore position from vault
         String worldId = CharacterDataManager.getWorldId(newPlayer);
-        java.util.Optional<double[]> pos = VaultManager.getWorldPosition(character.id(), worldId);
+        java.util.Optional<VaultManager.WorldPos> pos = VaultManager.getWorldPosition(character.id(), worldId);
         if (pos.isPresent()) {
-            double[] c = pos.get();
             NexusCharacters.LOGGER.info("[Nexus] Teleporting {} to saved pos [{}, {}, {}] in world {}",
-                    character.name(), c[0], c[1], c[2], worldId);
-            newPlayer.teleport(newPlayer.getServerWorld(), c[0], c[1], c[2],
-                    java.util.Set.of(), (float) c[3], (float) c[4]);
+                    character.name(), pos.get().x(), pos.get().y(), pos.get().z(), worldId);
+            CharacterDataManager.teleportTo(newPlayer, pos.get());
         } else {
-            net.minecraft.util.math.BlockPos spawn = newPlayer.getServerWorld().getSpawnPos();
-            NexusCharacters.LOGGER.info("[Nexus] No saved position for {} in world {} — teleporting to spawn {}",
-                    character.name(), worldId, spawn);
-            newPlayer.teleport(newPlayer.getServerWorld(), spawn.getX(), spawn.getY() + 1, spawn.getZ(),
-                    java.util.Set.of(), 0f, 0f);
+            // Fallback: try same host/save but any dimension
+            String hostSave = worldId.substring(0, worldId.lastIndexOf('|'));
+            java.util.Optional<VaultManager.WorldPos> fallback = VaultManager.getAnyPositionForWorld(character.id(), hostSave);
+            if (fallback.isPresent()) {
+                NexusCharacters.LOGGER.info("[Nexus] Teleporting {} to fallback pos [{}, {}, {}] in world {}",
+                        character.name(), fallback.get().x(), fallback.get().y(), fallback.get().z(), hostSave);
+                CharacterDataManager.teleportTo(newPlayer, fallback.get());
+            } else {
+                net.minecraft.util.math.BlockPos spawn = newPlayer.getServerWorld().getSpawnPos();
+                NexusCharacters.LOGGER.info("[Nexus] No saved position for {} in world {} — teleporting to spawn {}",
+                        character.name(), worldId, spawn);
+                newPlayer.teleport(newPlayer.getServerWorld(), spawn.getX(), spawn.getY() + 1, spawn.getZ(),
+                        java.util.Set.of(), 0f, 0f);
+            }
         }
 
         newPlayer.sendAbilitiesUpdate();
@@ -115,7 +122,7 @@ public class NexusCharactersNetwork {
         Path worldDir = server.getSavePath(WorldSavePath.ROOT).toAbsolutePath().normalize();
 
         try {
-            VaultManager.unzipToVault(dto.id(), zip);
+            VaultManager.unzipToVault(dto.id(), zip, true); // preserveServerFiles=true keeps world_positions.json
             VaultManager.clearWorldFiles(worldDir, playerUuid);
             VaultManager.copyVaultToWorld(dto.id(), worldDir, playerUuid);
             NexusCharacters.LOGGER.info("[Server] Config-phase vault installed for player {} char {}.", playerUuid, dto.id());
@@ -155,13 +162,20 @@ public class NexusCharactersNetwork {
         PayloadTypeRegistry.playS2C().register(CharacterDeletedPayload.ID,        CharacterDeletedPayload.CODEC);
 
         // ── Configuration-phase server event ──────────────────────────────────
-        // On dedicated servers only: add a task that blocks the player from entering
-        // the world until character selection + vault upload are done.
+        // On dedicated servers AND LAN non-host clients: add a task that blocks the
+        // player from entering the world until character selection + vault upload are done.
         ServerConfigurationConnectionEvents.CONFIGURE.register((handler, server) -> {
-            if (!server.isDedicated()) return;
+            // Always apply to dedicated servers
+            boolean isDedicated = server.isDedicated();
+            // For integrated (LAN) server: apply to non-host players only
+            if (!isDedicated) {
+                com.mojang.authlib.GameProfile profile =
+                        ((net.tompsen.nexuscharacters.mixin.ServerConfigurationHandlerAccessor) handler).getProfile();
+                if (profile == null || server.isHost(profile)) return;
+            }
 
             if (ServerConfigurationNetworking.canSend(handler, CharacterSelectRequestPayload.ID)) {
-                NexusCharacters.LOGGER.info("[Nexus] Adding CharacterSelectionTask for connecting player.");
+                NexusCharacters.LOGGER.info("[Nexus] Adding CharacterSelectionTask for connecting player (dedicated={}).", isDedicated);
                 handler.addTask(new CharacterSelectionTask(handler));
             } else {
                 NexusCharacters.LOGGER.warn("[Nexus] Client does not support CharacterSelectRequest — skipping config-phase selection.");
@@ -232,8 +246,14 @@ public class NexusCharactersNetwork {
                 NexusCharacters.LOGGER.info("[Server] Play SelectCharacter: char={} ({}) for player={} (singleplayer/LAN)",
                         dto.name(), dto.id(), player.getName().getString());
 
-                // Singleplayer / LAN host: vault was already copied to world dir by the mixin.
-                CharacterDataManager.applyCharacterData(player);
+                if (!ctx.server().isDedicated() && !ctx.server().isHost(player.getGameProfile())) {
+                    // LAN guest: request vault upload from client (just like dedicated does in config phase)
+                    NexusCharacters.LOGGER.info("[Server] Play: requesting vault upload from LAN guest {}.", player.getName().getString());
+                    ServerPlayNetworking.send(player, new VaultReceiveReadyPayload());
+                } else {
+                    // Singleplayer / LAN host: vault was already copied to world dir by the mixin.
+                    CharacterDataManager.applyCharacterData(player);
+                }
             });
         });
 
@@ -267,7 +287,7 @@ public class NexusCharactersNetwork {
                 Path worldDir = player.server.getSavePath(WorldSavePath.ROOT).toAbsolutePath().normalize();
 
                 try {
-                    VaultManager.unzipToVault(dto.id(), zip);
+                    VaultManager.unzipToVault(dto.id(), zip, true); // preserveServerFiles=true keeps world_positions.json
                     VaultManager.clearWorldFiles(worldDir, playerUuid);
                     VaultManager.copyVaultToWorld(dto.id(), worldDir, playerUuid);
                     NexusCharacters.LOGGER.info("[Server] Play: vault installed for {} (char {}).", player.getName().getString(), dto.id());

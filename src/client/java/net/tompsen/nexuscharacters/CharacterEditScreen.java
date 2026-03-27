@@ -66,10 +66,9 @@ public class CharacterEditScreen extends Screen {
                 });
         addDrawableChild(gmButton);
 
-        addDrawableChild(new RetroButtonWidget(cx - 105, cy + 90, 100, 20,
+        addDrawableChild(new RetroButtonWidget(cx - 100, py + 170, 95, 20,
                 Text.literal("Save").setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterUiHelper.CUSTOM_FONT)), btn -> confirm()));
-
-        addDrawableChild(new RetroButtonWidget(cx + 5, cy + 90, 100, 20,
+        addDrawableChild(new RetroButtonWidget(cx + 5, py + 170, 95, 20,
                 Text.literal("Cancel").setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterUiHelper.CUSTOM_FONT)), btn -> client.setScreen(parent)));
     }
 

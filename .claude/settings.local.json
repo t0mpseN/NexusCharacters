@@ -38,7 +38,13 @@
       "Bash(grep -v \"^.*entities.*$\")",
       "Bash(grep -v \"^.*poi.*$\")",
       "Bash(find C:/Users/tompsen/source/repos/Nexus/run/world -name *.json -not -path */data/* -not -path */datapacks/* -not -path */serverconfig/*)",
-      "Bash(python3:*)"
+      "Bash(python3:*)",
+      "Bash(find /c/Users/tompsen/source/repos/Nexus/run/nexuscharacters/vaults -type d -name *)",
+      "Bash(find /c/Users/tompsen/source/repos/Nexus/run/nexuscharacters/vaults -maxdepth 1 -type d ! -name vaults -exec du -sh {})",
+      "Bash(2)",
+      "Bash(find /c/Users/tompsen/source/repos/Nexus/run/nexuscharacters/vaults -type f -path *pokedex*)",
+      "Bash(done)",
+      "Bash(./gradlew compileJava compileTestJava --no-daemon -q)"
     ]
   }
 }

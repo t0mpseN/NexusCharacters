@@ -6,6 +6,7 @@ import net.minecraft.server.PlayerManager;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.util.WorldSavePath;
 import net.tompsen.nexuscharacters.CharacterDataManager;
+import net.tompsen.nexuscharacters.CharacterDto;
 import net.tompsen.nexuscharacters.NexusCharacters;
 import net.tompsen.nexuscharacters.VaultManager;
 import org.spongepowered.asm.mixin.Mixin;
@@ -34,11 +35,14 @@ public class PlayerManagerMixin {
 
         NexusCharacters.LOGGER.info("[Nexus] afterRemove: saving character data for {} (uuid={})", player.getName().getString(), uuid);
         // Runs AFTER PlayerManager.remove() which flushes playerdata/advancements/stats to disk.
-        CharacterDataManager.saveCurrentCharacter(player);
+        // LAN guests use the DISCONNECT event handler for their vault save — skip here.
+        boolean isLanGuest = !player.server.isDedicated() && !player.server.isHost(player.getGameProfile());
+        if (!isLanGuest) CharacterDataManager.saveCurrentCharacter(player);
 
         NexusCharacters.clearSelectedCharacter(player);
         NexusCharacters.playerJoinTick.remove(uuid);
-        if (!player.server.isDedicated()) {
+        // Only clear the static selectedCharacter for singleplayer/LAN host (not LAN guests)
+        if (!player.server.isDedicated() && !isLanGuest) {
             NexusCharacters.selectedCharacter = null;
         }
     }
@@ -80,31 +84,43 @@ public class PlayerManagerMixin {
             return;
         }
 
+        boolean isDedicated = player.server.isDedicated();
+        boolean isHost = player.server.isHost(player.getGameProfile());
+        boolean isLanGuest = !isDedicated && !isHost;
+
+        // LAN guests and dedicated server players go through the config-phase flow.
+        // installVaultAndCompleteTask already copied vault files to world dir before the player entered.
+        // Just mark the character as selected so trackers pick up the right files.
+        if (isDedicated || isLanGuest) {
+            CharacterDto pending = NexusCharacters.pendingCharacters.get(player.getUuid());
+            if (pending != null) {
+                NexusCharacters.setSelectedCharacter(player, pending);
+                NexusCharacters.LOGGER.info("[Nexus] prepareCharacterData: pending character {} for {}.",
+                        pending.name(), player.getName().getString());
+            } else {
+                NexusCharacters.LOGGER.debug("[Nexus] prepareCharacterData: no pending character for {} — config-phase may still be in progress.", player.getName().getString());
+            }
+            return;
+        }
+
+        // Singleplayer / LAN host: use selectedCharacter or last-used
         UUID charId = NexusCharacters.selectedCharacter != null
                 ? NexusCharacters.selectedCharacter.id()
                 : NexusCharacters.DATA_FILE_MANAGER.getLastUsed(player.getUuid());
 
-        NexusCharacters.LOGGER.info("[Nexus] prepareCharacterData: player={} dedicated={} charId={}",
-                player.getName().getString(), player.server.isDedicated(), charId);
+        NexusCharacters.LOGGER.info("[Nexus] prepareCharacterData: player={} singleplayer/host charId={}",
+                player.getName().getString(), charId);
 
         if (charId == null) return;
 
         NexusCharacters.DATA_FILE_MANAGER.findById(charId).ifPresent(character -> {
             NexusCharacters.setSelectedCharacter(player, character);
             Path worldDir = player.server.getSavePath(WorldSavePath.ROOT).toAbsolutePath().normalize();
-
-            if (player.server.isDedicated()) {
-                // Multiplayer: vault transfer happens via packets (VaultReceiveReadyPayload flow).
-                // Nothing to do here.
-                NexusCharacters.LOGGER.info("[Nexus] prepareCharacterData: dedicated server — vault transfer via packets for {}.", character.name());
-                return;
-            }
-
-            // Singleplayer / integrated: copy vault files into world dir right now,
+            // Singleplayer / LAN host: copy vault files into world dir right now,
             // before Minecraft's PlayerManager reads player.dat, advancements, stats.
             VaultManager.clearWorldFiles(worldDir, player.getUuid());
             VaultManager.copyVaultToWorld(character.id(), worldDir, player.getUuid());
-            NexusCharacters.LOGGER.info("[Nexus] Vault installed for singleplayer join: {}", character.name());
+            NexusCharacters.LOGGER.info("[Nexus] Vault installed for singleplayer/host join: {}", character.name());
         });
     }
 }

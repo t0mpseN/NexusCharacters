@@ -2,16 +2,18 @@ package net.tompsen.nexuscharacters;
 
 import net.fabricmc.api.ModInitializer;
 
-import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.network.ServerPlayerEntity;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Map;
-import java.util.Timer;
-import java.util.TimerTask;
+import java.util.Properties;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -36,6 +38,43 @@ public class NexusCharacters implements ModInitializer {
 	private static final int VAULT_SYNC_INTERVAL_TICKS = 20;
 	/** Ticks between advancements + pokedex syncs. Configurable via /nexus saveinterval. Default 30 s. */
 	public static volatile int ADVANCEMENTS_SYNC_INTERVAL_TICKS = 600;
+	/** Set to true to force a full sync on the next tick regardless of interval. */
+	public static volatile boolean FORCE_FULL_SYNC_NEXT_TICK = false;
+
+	// ── Config persistence ────────────────────────────────────────────────────
+
+	private static Path serverConfigPath = null;
+
+	private static void loadServerConfig(MinecraftServer server) {
+		// On dedicated: ROOT/../nexuscharacters.properties (server root)
+		// On integrated: ROOT/nexuscharacters.properties (inside the world dir)
+		Path root = server.getSavePath(net.minecraft.util.WorldSavePath.ROOT).toAbsolutePath().normalize();
+		serverConfigPath = server.isDedicated()
+				? root.getParent().resolve("nexuscharacters.properties")
+				: root.resolve("nexuscharacters.properties");
+		if (!Files.exists(serverConfigPath)) return;
+		try {
+			Properties props = new Properties();
+			props.load(Files.newBufferedReader(serverConfigPath));
+			String val = props.getProperty("saveinterval_ticks");
+			if (val != null) ADVANCEMENTS_SYNC_INTERVAL_TICKS = Integer.parseInt(val.trim());
+		} catch (Exception e) {
+			LOGGER.warn("[Nexus] Could not load server config: {}", e.getMessage());
+		}
+	}
+
+	public static void saveServerConfig() {
+		if (serverConfigPath == null) return;
+		try {
+			Properties props = new Properties();
+			props.setProperty("saveinterval_ticks", String.valueOf(ADVANCEMENTS_SYNC_INTERVAL_TICKS));
+			try (var w = Files.newBufferedWriter(serverConfigPath)) {
+				props.store(w, "NexusCharacters server config");
+			}
+		} catch (IOException e) {
+			LOGGER.warn("[Nexus] Could not save server config: {}", e.getMessage());
+		}
+	}
 
 
 	public static CharacterDto getSelectedCharacter(ServerPlayerEntity player) {
@@ -55,14 +94,20 @@ public class NexusCharacters implements ModInitializer {
 		DATA_FILE_MANAGER = new DataFileManager();
 		NexusCharactersNetwork.register();
 
+		net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents.SERVER_STARTED.register(server -> {
+			loadServerConfig(server);
+			LOGGER.info("[Nexus] Server started — saveinterval = {}t ({} s)",
+					ADVANCEMENTS_SYNC_INTERVAL_TICKS, ADVANCEMENTS_SYNC_INTERVAL_TICKS / 20);
+		});
+
 		ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> {
 			UUID uuid = handler.player.getUuid();
 			playerJoinTick.put(uuid, (long) server.getTicks());
 			ServerPlayerEntity player = handler.player;
 			LOGGER.info("[Nexus] JOIN event for {} (uuid={}) dedicated={}", player.getName().getString(), uuid, server.isDedicated());
 
-			if (server.isDedicated()) {
-				// Dedicated server: character was selected during the configuration phase.
+			if (server.isDedicated() || (!server.isHost(player.getGameProfile()))) {
+				// Dedicated server OR LAN non-host: character was selected during the configuration phase.
 				// Consume the pending selection and apply character data.
 				CharacterDto pending = pendingCharacters.remove(uuid);
 				if (pending != null) {
@@ -74,29 +119,6 @@ public class NexusCharacters implements ModInitializer {
 				} else {
 					LOGGER.warn("[Nexus] JOIN: no pending character for {} — mod may not be installed on client.", player.getName().getString());
 				}
-			} else if (!server.isHost(player.getGameProfile())) {
-				// LAN non-host client: send ModPresent so they get the picker
-				server.execute(() -> {
-					boolean canSend = ServerPlayNetworking.canSend(handler, ModPresentPayload.ID);
-					LOGGER.info("[Nexus] JOIN: canSend ModPresent to {} (LAN) = {}", player.getName().getString(), canSend);
-					if (canSend) {
-						ServerPlayNetworking.send(player, new ModPresentPayload());
-					} else {
-						new Timer().schedule(new TimerTask() {
-							@Override
-							public void run() {
-								server.execute(() -> {
-									if (ServerPlayNetworking.canSend(handler, ModPresentPayload.ID)) {
-										ServerPlayNetworking.send(player, new ModPresentPayload());
-									} else {
-										LOGGER.warn("[Nexus] JOIN: ModPresent unavailable for {} after retry.", player.getName().getString());
-										CharacterDataManager.applyCharacterData(player);
-									}
-								});
-							}
-						}, 1000);
-					}
-				});
 			} else {
 				// Singleplayer / LAN host
 				LOGGER.info("[Nexus] JOIN: singleplayer/LAN host {}, selectedCharacter={}",
@@ -108,29 +130,23 @@ public class NexusCharacters implements ModInitializer {
 			}
 		});
 
-		// For dedicated servers: on disconnect, serialize player state from memory,
+		// For dedicated servers AND LAN non-host: on disconnect, serialize player state from memory,
 		// save the server-side vault, and send the final state to the client.
-		// DISCONNECT fires on the Netty IO thread while the connection is still open.
-		// We serialize playerdata directly from the live player object (no disk flush needed),
-		// then read mod files (Cobblemon etc.) from disk — those are flushed by the mods themselves.
 		ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> {
-			if (!server.isDedicated()) return;
-
 			ServerPlayerEntity player = handler.player;
-			UUID disconnectUuid = player.getUuid();
-			LOGGER.info("[Nexus] DISCONNECT event for {} (uuid={}) on thread {}",
-					player.getName().getString(), disconnectUuid, Thread.currentThread().getName());
+			boolean isLanGuest = !server.isDedicated() && !server.isHost(player.getGameProfile());
+			if (!server.isDedicated() && !isLanGuest) return;
 
-			// Clean up any config-phase state that was never consumed
+			UUID disconnectUuid = player.getUuid();
+			LOGGER.info("[Nexus] DISCONNECT event for {} (uuid={})",
+					player.getName().getString(), disconnectUuid);
+
 			pendingCharacters.remove(disconnectUuid);
 
 			CharacterDto current = NexusCharacters.getSelectedCharacter(player);
-			if (current == null) {
-				LOGGER.info("[Nexus] DISCONNECT: no character selected for {} — skipping vault save.", player.getName().getString());
-				return;
-			}
+			if (current == null) return;
 
-			// Sync gameMode from live player state so the card shows the correct mode next session.
+			// Sync gameMode from live player state
 			int liveGameMode = player.interactionManager.getGameMode().getId();
 			final CharacterDto charToSave = liveGameMode != current.gameMode()
 					? new CharacterDto(current.id(), current.name(), current.skinValue(),
@@ -139,11 +155,8 @@ public class NexusCharacters implements ModInitializer {
 			if (liveGameMode != current.gameMode()) {
 				DATA_FILE_MANAGER.updateCharacter(charToSave);
 			}
-			LOGGER.info("[Nexus] DISCONNECT: saving vault for {} char={} ({}).",
-					player.getName().getString(), charToSave.name(), charToSave.id());
 
-			// Serialize playerdata directly from the live in-memory player object.
-			// This avoids any disk-flush race with PlayerManager.remove() on the server thread.
+			// Serialize playerdata directly from memory
 			byte[] playerNbtBytes = null;
 			try {
 				playerNbtBytes = VaultManager.serializePlayerNbt(player);
@@ -151,48 +164,28 @@ public class NexusCharacters implements ModInitializer {
 				LOGGER.warn("[Nexus] DISCONNECT: failed to serialize playerdata: {}", e.getMessage());
 			}
 
-			// Save advancements and stats to disk (these are safe to call from any thread).
-			try { player.getAdvancementTracker().save(); } catch (Exception ignored) {}
-			try { player.getStatHandler().save(); } catch (Exception ignored) {}
-
 			// Save position to vault metadata
 			String worldId = CharacterDataManager.getWorldId(player);
 			VaultManager.saveWorldPosition(charToSave.id(), worldId,
 					player.getX(), player.getY(), player.getZ(),
 					player.getYaw(), player.getPitch());
 
-			// Schedule the disk-based work on the server thread (vault copy + world files).
-			// This runs after the connection closes, so no packets can be sent from here.
-			final byte[] finalPlayerNbt = playerNbtBytes;
-			server.execute(() -> {
-				java.nio.file.Path worldDir = server.getSavePath(net.minecraft.util.WorldSavePath.ROOT)
-						.toAbsolutePath().normalize();
-				// If we have in-memory playerdata, write it to disk first so copyWorldToVault picks it up
-				if (finalPlayerNbt != null) {
-					try {
-						java.nio.file.Path playerFile = worldDir.resolve("playerdata").resolve(disconnectUuid + ".dat");
-						java.nio.file.Files.createDirectories(playerFile.getParent());
-						java.nio.file.Files.write(playerFile, finalPlayerNbt);
-					} catch (Exception e) {
-						LOGGER.warn("[Nexus] DISCONNECT: failed to write playerdata to disk: {}", e.getMessage());
-					}
-				}
-				VaultManager.copyWorldToVault(charToSave.id(), worldDir, disconnectUuid);
-				LOGGER.info("[Nexus] Saved server-side vault for {} (char {}).",
-						player.getName().getString(), charToSave.id());
-			});
+			// Flush disk data
+			try { player.getAdvancementTracker().save(); } catch (Exception ignored) {}
+			try { player.getStatHandler().save(); } catch (Exception ignored) {}
 
-			// Send the final state to the client while the connection is still open.
-			// playerdata comes from in-memory serialization (fresh); mod files from disk (flushed by mods).
+			// Final sync to client
 			if (playerNbtBytes != null && ServerPlayNetworking.canSend(player, VaultSyncPayload.ID)) {
 				try {
 					java.nio.file.Path worldDir = server.getSavePath(net.minecraft.util.WorldSavePath.ROOT)
 							.toAbsolutePath().normalize();
 					java.util.Map<String, byte[]> allFiles = new java.util.LinkedHashMap<>();
-					allFiles.putAll(VaultManager.collectSmallFiles(charToSave.id(), worldDir, disconnectUuid));
-					// Override playerdata with the fresh in-memory bytes
-					allFiles.put("playerdata/" + VaultManager.PLAYER_TOKEN + ".dat", playerNbtBytes);
+					// Disconnect sync includes everything
+					allFiles.putAll(VaultManager.collectEssentialFiles(charToSave.id(), worldDir, disconnectUuid));
+					allFiles.putAll(VaultManager.collectModFiles(charToSave.id(), worldDir, disconnectUuid));
 					allFiles.putAll(VaultManager.collectAdvancementsFile(worldDir, disconnectUuid));
+					allFiles.put("playerdata/" + VaultManager.PLAYER_TOKEN + ".dat", playerNbtBytes);
+					
 					ServerPlayNetworking.send(player, new VaultSyncPayload(charToSave.id(), allFiles));
 					LOGGER.info("[Nexus] DISCONNECT: sent final VaultSyncPayload ({} files) to {}.",
 							allFiles.size(), player.getName().getString());
@@ -200,19 +193,39 @@ public class NexusCharacters implements ModInitializer {
 					LOGGER.warn("[Nexus] DISCONNECT: failed to send final VaultSyncPayload: {}", e.getMessage());
 				}
 			}
+
+			// Background server vault update
+			final byte[] finalPlayerNbt = playerNbtBytes;
+			server.execute(() -> {
+				java.nio.file.Path worldDir = server.getSavePath(net.minecraft.util.WorldSavePath.ROOT)
+						.toAbsolutePath().normalize();
+				if (finalPlayerNbt != null) {
+					try {
+						java.nio.file.Path playerFile = worldDir.resolve("playerdata").resolve(disconnectUuid + ".dat");
+						java.nio.file.Files.createDirectories(playerFile.getParent());
+						java.nio.file.Files.write(playerFile, finalPlayerNbt);
+					} catch (Exception ignored) {}
+				}
+				VaultManager.copyWorldToVault(charToSave.id(), worldDir, disconnectUuid);
+			});
 		});
 
 		// Periodic server→client incremental vault sync.
-		// Every 20 ticks (1 second): collect playerdata, stats, and mod files (excluding advancements)
-		// and send them as a VaultSyncPayload so the client vault is always at most 1 second stale.
-		// Every 600 ticks (30 seconds): also sync advancements (they're large but change infrequently).
-		// If the server crashes or the player loses connection, their local vault has recent progress.
 		net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents.END_SERVER_TICK.register(tickServer -> {
-			if (!tickServer.isDedicated()) return;
 			int ticks = tickServer.getTicks();
 			if (ticks % VAULT_SYNC_INTERVAL_TICKS != 0) return;
 
-			boolean syncAdvancements = (ticks % ADVANCEMENTS_SYNC_INTERVAL_TICKS == 0);
+			int advInterval = ADVANCEMENTS_SYNC_INTERVAL_TICKS;
+			boolean forceNow = FORCE_FULL_SYNC_NEXT_TICK;
+			if (forceNow) FORCE_FULL_SYNC_NEXT_TICK = false;
+			boolean includeAll = forceNow || (advInterval > 0 && (ticks % advInterval == 0));
+
+			// On full-sync ticks, ask the server to flush all world/player data to disk
+			// so mod files (e.g. Cobblemon pokedex) are written before we read and sync them.
+			// save(suppressLog=true, flush=false, force=false) — avoids log spam and is non-blocking.
+			if (includeAll) {
+				try { tickServer.save(true, false, false); } catch (Exception ignored) {}
+			}
 
 			for (ServerPlayerEntity player : tickServer.getPlayerManager().getPlayerList()) {
 				CharacterDto character = getSelectedCharacter(player);
@@ -221,59 +234,52 @@ public class NexusCharacters implements ModInitializer {
 
 				final UUID playerUuid = player.getUuid();
 				final UUID charId = character.id();
-				final boolean includeAdvancements = syncAdvancements;
+				final boolean doFullSync = includeAll;
 
-				// Save current position to vault every second so join always lands correctly.
+				// Save current position
 				String worldId = CharacterDataManager.getWorldId(player);
 				VaultManager.saveWorldPosition(charId, worldId,
 						player.getX(), player.getY(), player.getZ(),
 						player.getYaw(), player.getPitch());
 
-				// Flush all player data to disk now (on server tick thread) so the
-				// background thread reads fresh files — including mod data (Cobblemon etc.)
-				// that only persists to disk when explicitly saved.
 				try {
 					player.getAdvancementTracker().save();
 					player.getStatHandler().save();
 					((net.tompsen.nexuscharacters.mixin.PlayerManagerAccessor) tickServer.getPlayerManager())
 							.invokeSavePlayerData(player);
-				} catch (Exception e) {
-					LOGGER.debug("[Nexus] VaultSync: flush failed for {}: {}", playerUuid, e.getMessage());
-				}
+				} catch (Exception ignored) {}
 
-				// Serialize playerdata from live in-memory state (most up-to-date).
 				final byte[] playerNbtBytes;
 				try {
 					playerNbtBytes = VaultManager.serializePlayerNbt(player);
-				} catch (Exception e) {
-					LOGGER.warn("[Nexus] VaultSync: failed to serialize playerdata for {}: {}", playerUuid, e.getMessage());
-					continue;
-				}
+				} catch (Exception e) { continue; }
+				
 				final String playerNbtKey = "playerdata/" + VaultManager.PLAYER_TOKEN + ".dat";
 
 				new Thread(() -> {
 					try {
 						java.nio.file.Path worldDir = tickServer.getSavePath(net.minecraft.util.WorldSavePath.ROOT)
 								.toAbsolutePath().normalize();
-						// Collect mod files (Cobblemon etc.) from disk — freshly flushed above
-						java.util.Map<String, byte[]> files = new java.util.LinkedHashMap<>(
-								VaultManager.collectSmallFiles(charId, worldDir, playerUuid));
-						// Override playerdata with live in-memory bytes (fresher than disk)
-						files.put(playerNbtKey, playerNbtBytes);
-						if (includeAdvancements) {
+						
+						java.util.Map<String, byte[]> files = new java.util.LinkedHashMap<>();
+						files.putAll(VaultManager.collectEssentialFiles(charId, worldDir, playerUuid));
+						
+						if (doFullSync) {
+							files.putAll(VaultManager.collectModFiles(charId, worldDir, playerUuid));
 							files.putAll(VaultManager.collectAdvancementsFile(worldDir, playerUuid));
 						}
+						
+						files.put(playerNbtKey, playerNbtBytes);
+						
 						final java.util.Map<String, byte[]> snapshot = java.util.Collections.unmodifiableMap(files);
 						tickServer.execute(() ->
 								ServerPlayNetworking.send(player, new VaultSyncPayload(charId, snapshot)));
-					} catch (Exception e) {
-						LOGGER.warn("[Nexus] VaultSync failed for {} (char {}): {}", playerUuid, charId, e.getMessage());
-					}
+					} catch (Exception ignored) {}
 				}, "NexusChars-VaultSync").start();
 			}
 		});
 
-		// Hardcore Death Logic
+		// Hardcore Death
 		net.fabricmc.fabric.api.entity.event.v1.ServerLivingEntityEvents.AFTER_DEATH.register((entity, dmg) -> {
 			if (entity instanceof ServerPlayerEntity player) {
 				CharacterDto ch = getSelectedCharacter(player);
@@ -281,16 +287,16 @@ public class NexusCharacters implements ModInitializer {
 					deadHardcorePlayers.add(player.getUuid());
 					DATA_FILE_MANAGER.deleteCharacter(ch.id());
 					clearSelectedCharacter(player);
-					// Notify the client to remove it from its local list immediately.
-					if (player.server.isDedicated()
-							&& ServerPlayNetworking.canSend(player, CharacterDeletedPayload.ID)) {
+					boolean isRemotePlayer = player.server.isDedicated()
+							|| !player.server.isHost(player.getGameProfile());
+					if (isRemotePlayer && ServerPlayNetworking.canSend(player, CharacterDeletedPayload.ID)) {
 						ServerPlayNetworking.send(player, new CharacterDeletedPayload(ch.id()));
 					}
 				}
 			}
 		});
 
-		// /nexus saveinterval <seconds> — change how often advancements/pokedex are synced.
+		// Commands
 		net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> {
 			dispatcher.register(
 				net.minecraft.server.command.CommandManager.literal("nexus")
@@ -301,9 +307,11 @@ public class NexusCharacters implements ModInitializer {
 							.executes(ctx -> {
 								int seconds = com.mojang.brigadier.arguments.IntegerArgumentType.getInteger(ctx, "seconds");
 								ADVANCEMENTS_SYNC_INTERVAL_TICKS = seconds * 20;
+								FORCE_FULL_SYNC_NEXT_TICK = true; // trigger immediate full sync
+								saveServerConfig();
 								ctx.getSource().sendFeedback(() ->
-										net.minecraft.text.Text.literal("[Nexus] Advancements/pokedex sync interval set to "
-												+ seconds + "s (" + ADVANCEMENTS_SYNC_INTERVAL_TICKS + " ticks)."), true);
+										net.minecraft.text.Text.literal("[Nexus] Non-vanilla data autosave interval set to "
+												+ seconds + "s (takes effect immediately, persisted)."), true);
 								return 1;
 							}))));
 		});

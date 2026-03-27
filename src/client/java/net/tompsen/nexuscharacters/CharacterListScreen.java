@@ -483,7 +483,7 @@ public class CharacterListScreen extends Screen {
             ctx.getMatrices().pop();
 
             Text titleTxt = Text.literal(latestAdv.title()).setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterUiHelper.CUSTOM_FONT)).formatted(Formatting.WHITE);
-            CharacterUiHelper.drawRetroText(ctx, tr, titleTxt, badgeX + iconBoxSize, badgeY + 6, 0xFFFFFF);
+            CharacterUiHelper.drawRetroText(ctx, tr, titleTxt, badgeX + iconBoxSize + 8, badgeY + 6, 0xFFFFFF);
 
             Text descText = Text.literal(latestAdv.description()).setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterUiHelper.CUSTOM_FONT));
             List<OrderedText> lines = tr.wrapLines(descText, badgeW - 20);

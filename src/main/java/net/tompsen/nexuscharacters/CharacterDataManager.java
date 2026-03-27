@@ -9,6 +9,8 @@ import net.minecraft.network.packet.s2c.play.PlayerRemoveS2CPacket;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.PlayerManager;
 import net.minecraft.server.network.ServerPlayerEntity;
+import net.minecraft.server.world.ServerWorld;
+import net.minecraft.util.Identifier;
 import net.minecraft.util.WorldSavePath;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.world.GameMode;
@@ -41,7 +43,6 @@ public class CharacterDataManager {
         refreshTrackers(player);
 
         // 2. Read vanilla player NBT that Minecraft loaded from the world dir
-        //    (it was put there by NexusCharactersClient or by VaultTransferDoneC2SPayload handler)
         NbtCompound playerNbt = readPlayerNbtFromWorld(player);
         NexusCharacters.LOGGER.info("[Nexus] applyCharacterData: playerNbt empty={} for {}.", playerNbt.isEmpty(), player.getName().getString());
 
@@ -72,14 +73,20 @@ public class CharacterDataManager {
         player.changeGameMode(GameMode.byId(character.gameMode()));
 
         // 4. Position
-        Path vaultDir = VaultManager.getVaultDir(character.id());
-        Optional<double[]> pos = VaultManager.getWorldPosition(character.id(), worldId);
+        // Try exact worldId (includes dimension) first
+        Optional<VaultManager.WorldPos> pos = VaultManager.getWorldPosition(character.id(), worldId);
         if (pos.isPresent()) {
-            double[] c = pos.get();
-            player.teleport(player.getServerWorld(), c[0], c[1], c[2], Set.of(), (float)c[3], (float)c[4]);
+            teleportTo(player, pos.get());
         } else {
-            BlockPos spawn = player.getServerWorld().getSpawnPos();
-            player.teleport(player.getServerWorld(), spawn.getX(), spawn.getY() + 1, spawn.getZ(), Set.of(), 0f, 0f);
+            // Fallback: try same host/save but any dimension
+            String hostSave = worldId.substring(0, worldId.lastIndexOf('|'));
+            Optional<VaultManager.WorldPos> fallback = VaultManager.getAnyPositionForWorld(character.id(), hostSave);
+            if (fallback.isPresent()) {
+                teleportTo(player, fallback.get());
+            } else {
+                BlockPos spawn = player.getServerWorld().getSpawnPos();
+                player.teleport(player.getServerWorld(), spawn.getX(), spawn.getY() + 1, spawn.getZ(), Set.of(), 0f, 0f);
+            }
         }
 
         // 5. Skin
@@ -91,22 +98,28 @@ public class CharacterDataManager {
         NexusCharacters.LOGGER.info("[Nexus] applyCharacterData complete for {}.", character.name());
     }
 
+    public static void teleportTo(ServerPlayerEntity player, VaultManager.WorldPos p) {
+        ServerWorld targetWorld = player.getServerWorld();
+        if (p.dimension() != null) {
+            Identifier dimId = Identifier.tryParse(p.dimension());
+            if (dimId != null) {
+                ServerWorld dim = player.server.getWorld(net.minecraft.registry.RegistryKey.of(net.minecraft.registry.RegistryKeys.WORLD, dimId));
+                if (dim != null) targetWorld = dim;
+            }
+        }
+        player.teleport(targetWorld, p.x(), p.y(), p.z(), Set.of(), p.yaw(), p.pitch());
+    }
+
     /**
      * Called on disconnect. Saves position to vault and initiates file transfer back
      * to client (multiplayer) OR relies on NexusCharactersClient to copy files (singleplayer).
      */
     public static void saveCurrentCharacter(ServerPlayerEntity player) {
-        if (player.server.isDedicated()) {
-            // Dedicated server: everything is handled by the DISCONNECT event handler
-            // in NexusCharacters (flush + vault save). Nothing to do here.
-            return;
-        }
+        if (player.server.isDedicated()) return;
 
         CharacterDto current = NexusCharacters.getSelectedCharacter(player);
         if (current == null) return;
 
-        // Singleplayer / LAN host: called from @At("TAIL") of PlayerManager.remove(),
-        // so vanilla has already flushed playerdata/advancements/stats to disk.
         String worldId = getWorldId(player);
         VaultManager.saveWorldPosition(current.id(), worldId,
                 player.getX(), player.getY(), player.getZ(),
@@ -176,11 +189,13 @@ public class CharacterDataManager {
     }
 
     public static String getWorldId(ServerPlayerEntity player) {
-        String save    = player.server.getSaveProperties().getLevelName();
-        String host    = player.server.isDedicated()
+        String save = player.server.getSaveProperties().getLevelName();
+        String host = player.server.isDedicated()
                 ? player.server.getServerIp() + ":" + player.server.getServerPort()
                 : "integrated";
         long seed = player.getServerWorld().getSeed();
-        return host + "|" + save + "|" + seed;
+        String dim = player.getServerWorld().getRegistryKey().getValue().toString();
+        // format: host|save|seed|dimension
+        return host + "|" + save + "|" + seed + "|" + dim;
     }
 }
