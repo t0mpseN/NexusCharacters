@@ -23,7 +23,7 @@ public class DummyPlayerManager {
     private static final Map<UUID, SkinTextures> SKIN_CACHE = new HashMap<>();
 
     // ── Subclasse que bypassa o getNetworkHandler() ──────────────────────────
-    static class DummyClientPlayer extends OtherClientPlayerEntity {
+    static class DummyClientPlayer extends OtherClientPlayerEntity implements NexusDummyEntity {
         private final UUID characterId;
 
         DummyClientPlayer(ClientWorld world, GameProfile profile, UUID characterId) {
@@ -199,6 +199,59 @@ public class DummyPlayerManager {
         // O SKIN_CACHE já foi populado com o UUID correto pelo getDummyPlayer()
         // Este fallback só é chamado nos primeiros frames antes do fetch completar
         return characterId;
+    }
+
+    /**
+     * Applies or removes equipment visibility on all cached dummies without
+     * rebuilding them.  Re-equipping restores from the saved NBT, so this is
+     * safe to call every frame.
+     */
+    public static void applyEquipmentVisibility(boolean showEquipment) {
+        if (showEquipment) {
+            // Restore from NBT for every cached dummy
+            for (Map.Entry<UUID, OtherClientPlayerEntity> entry : DUMMY_CACHE.entrySet()) {
+                OtherClientPlayerEntity dummy = entry.getValue();
+                // Find the matching character by id to reload NBT
+                NexusCharacters.DATA_FILE_MANAGER.characterList.stream()
+                        .filter(c -> c.id().equals(entry.getKey()))
+                        .findFirst()
+                        .ifPresent(c -> reloadEquipment(dummy, c));
+            }
+        } else {
+            for (OtherClientPlayerEntity dummy : DUMMY_CACHE.values()) {
+                dummy.equipStack(EquipmentSlot.HEAD, ItemStack.EMPTY);
+                dummy.equipStack(EquipmentSlot.CHEST, ItemStack.EMPTY);
+                dummy.equipStack(EquipmentSlot.LEGS, ItemStack.EMPTY);
+                dummy.equipStack(EquipmentSlot.FEET, ItemStack.EMPTY);
+                dummy.equipStack(EquipmentSlot.OFFHAND, ItemStack.EMPTY);
+                dummy.equipStack(EquipmentSlot.MAINHAND, ItemStack.EMPTY);
+            }
+        }
+    }
+
+    private static void reloadEquipment(OtherClientPlayerEntity dummy, CharacterDto character) {
+        // Clear first
+        for (EquipmentSlot slot : EquipmentSlot.values()) dummy.equipStack(slot, ItemStack.EMPTY);
+
+        NbtCompound playerNbt = VaultManager.readPlayerNbt(character.id());
+        if (playerNbt == null || !playerNbt.contains("Inventory")) return;
+        NbtList inventory = playerNbt.getList("Inventory", 10);
+        int selectedSlot = playerNbt.contains("SelectedItemSlot") ? playerNbt.getInt("SelectedItemSlot") : 0;
+        for (int i = 0; i < inventory.size(); i++) {
+            NbtCompound itemTag = inventory.getCompound(i);
+            int slot = itemTag.getByte("Slot") & 255;
+            ItemStack stack = ItemStack.fromNbtOrEmpty(DummyWorldManager.getRegistries(), itemTag);
+            if (!stack.isEmpty()) {
+                if (slot == 100) dummy.equipStack(EquipmentSlot.FEET, stack);
+                else if (slot == 101) dummy.equipStack(EquipmentSlot.LEGS, stack);
+                else if (slot == 102) dummy.equipStack(EquipmentSlot.CHEST, stack);
+                else if (slot == 103) dummy.equipStack(EquipmentSlot.HEAD, stack);
+                else if (slot == 150) dummy.equipStack(EquipmentSlot.OFFHAND, stack);
+                if (slot == selectedSlot && !isWorldDependentItem(stack)) {
+                    dummy.equipStack(EquipmentSlot.MAINHAND, stack);
+                }
+            }
+        }
     }
 
     public static void clearCache() {
