@@ -3,7 +3,7 @@ package net.tompsen.nexuscharacters.mixin.client;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.screen.world.CreateWorldScreen;
 import net.tompsen.nexuscharacters.NexusCharacters;
-import net.tompsen.nexuscharacters.NexusCharactersScreen;
+import net.tompsen.nexuscharacters.CharacterSelectionScreen;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -19,7 +19,7 @@ public class CreateWorldScreenMixin {
         MinecraftClient client = MinecraftClient.getInstance();
         CreateWorldScreen self = (CreateWorldScreen)(Object)this;
 
-        client.setScreen(new NexusCharactersScreen(self, () ->
+        client.setScreen(new CharacterSelectionScreen(self, () ->
                 ((CreateWorldScreenAccessor) self).invokeCreateLevel()
         ));
         ci.cancel();

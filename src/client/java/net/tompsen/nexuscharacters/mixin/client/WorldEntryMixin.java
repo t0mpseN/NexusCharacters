@@ -4,7 +4,7 @@ import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.screen.world.WorldListWidget;
 import net.tompsen.nexuscharacters.NexusCharacters;
-import net.tompsen.nexuscharacters.NexusCharactersScreen;
+import net.tompsen.nexuscharacters.CharacterSelectionScreen;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -28,7 +28,7 @@ public class WorldEntryMixin {
         WorldListWidget.WorldEntry self = (WorldListWidget.WorldEntry)(Object)this;
 
         lastPickerOpen = now;
-        client.setScreen(new NexusCharactersScreen(currentScreen, () -> self.play()));
+        client.setScreen(new CharacterSelectionScreen(currentScreen, () -> self.play()));
         ci.cancel();
     }
 }

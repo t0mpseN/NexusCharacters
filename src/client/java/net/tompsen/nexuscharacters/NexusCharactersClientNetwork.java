@@ -14,7 +14,7 @@ public class NexusCharactersClientNetwork {
         ClientConfigurationNetworking.registerGlobalReceiver(CharacterSelectRequestPayload.ID, (payload, ctx) -> {
             ctx.client().execute(() -> {
                 NexusCharacters.LOGGER.info("[Client] Config: received CharacterSelectRequest — showing picker.");
-                ctx.client().setScreen(new NexusCharactersScreen(null, () -> {
+                ctx.client().setScreen(new CharacterSelectionScreen(null, () -> {
                     if (NexusCharacters.selectedCharacter == null) {
                         NexusCharacters.LOGGER.warn("[Client] Config: no character selected — cannot proceed.");
                         return;
@@ -44,7 +44,7 @@ public class NexusCharactersClientNetwork {
         // Server sends ModPresent → show character picker (LAN / singleplayer)
         ClientPlayNetworking.registerGlobalReceiver(ModPresentPayload.ID, (payload, ctx) -> {
             ctx.client().execute(() -> {
-                ctx.client().setScreen(new NexusCharactersScreen(null, () -> {
+                ctx.client().setScreen(new CharacterSelectionScreen(null, () -> {
                     if (NexusCharacters.selectedCharacter == null) return;
                     ClientPlayNetworking.send(new SelectCharacterPayload(NexusCharacters.selectedCharacter));
                     ctx.client().setScreen(null);

@@ -5,7 +5,6 @@ import net.minecraft.client.font.TextRenderer;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.screen.ingame.InventoryScreen;
-import net.minecraft.client.gui.widget.ButtonWidget;
 import net.minecraft.client.network.OtherClientPlayerEntity;
 import net.minecraft.item.ItemStack;
 import net.minecraft.nbt.NbtCompound;
@@ -22,7 +21,7 @@ import java.util.UUID;
 
 import static net.tompsen.nexuscharacters.CharacterCardRenderer.CARD_W;
 
-public class NexusCharactersScreen extends Screen {
+public class CharacterSelectionScreen extends Screen {
     private final Screen parent;
     private final Runnable onConfirm;
     private int hoveredIndex = -1;
@@ -33,7 +32,7 @@ public class NexusCharactersScreen extends Screen {
     private ModelToggleButton equipmentToggle;
     private ModelToggleButton rotateToggle;
 
-    public NexusCharactersScreen(Screen parent, Runnable onConfirm) {
+    public CharacterSelectionScreen(Screen parent, Runnable onConfirm) {
         super(Text.literal("Select Character"));
         this.parent = parent;
         this.onConfirm = onConfirm;
