@@ -156,10 +156,10 @@ public class NexusCharacters implements ModInitializer {
 				DATA_FILE_MANAGER.updateCharacter(charToSave);
 			}
 
-			// Serialize playerdata directly from memory
+			// Serialize playerdata directly from memory, with UUID tokenized for vault storage
 			byte[] playerNbtBytes = null;
 			try {
-				playerNbtBytes = VaultManager.serializePlayerNbt(player);
+				playerNbtBytes = VaultManager.serializePlayerNbtTokenized(player);
 			} catch (Exception e) {
 				LOGGER.warn("[Nexus] DISCONNECT: failed to serialize playerdata: {}", e.getMessage());
 			}
@@ -251,7 +251,7 @@ public class NexusCharacters implements ModInitializer {
 
 				final byte[] playerNbtBytes;
 				try {
-					playerNbtBytes = VaultManager.serializePlayerNbt(player);
+					playerNbtBytes = VaultManager.serializePlayerNbtTokenized(player);
 				} catch (Exception e) { continue; }
 				
 				final String playerNbtKey = "playerdata/" + VaultManager.PLAYER_TOKEN + ".dat";

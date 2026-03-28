@@ -28,7 +28,7 @@ public class VaultManager {
 
     private static final Set<String> IGNORED_WORLD_DIRS = Set.of(
             "region", "DIM1", "DIM-1", "entities", "poi", "dimensions", "level.dat",
-            "level.dat_old", "session.lock", "data", "icon.png", "resources.zip"
+            "level.dat_old", "session.lock", "icon.png", "resources.zip"
     );
 
     /** File suffixes that are mod-internal backups and should not be vaulted. */
@@ -58,17 +58,73 @@ public class VaultManager {
         return rel.replace(PLAYER_TOKEN, playerUuid.toString());
     }
 
+    /**
+     * NBT int-array tag header for a field named "UUID" with 4 elements.
+     * Used to locate and replace the binary UUID stored inside playerdata NBT.
+     * Format: tag_type(0x0b) + name_len(0x0004) + "UUID" + array_len(0x00000004)
+     */
+    private static final byte[] NBT_UUID_HEADER = {
+        0x0b, 0x00, 0x04, 0x55, 0x55, 0x49, 0x44, 0x00, 0x00, 0x00, 0x04
+    };
+    /** 16-byte sentinel used in place of the binary UUID in vault files. */
+    private static final byte[] NBT_UUID_TOKEN = new byte[16]; // all zeros
+
+    private static byte[] uuidToBinaryBigEndian(UUID uuid) {
+        long msb = uuid.getMostSignificantBits();
+        long lsb = uuid.getLeastSignificantBits();
+        byte[] b = new byte[16];
+        for (int i = 7; i >= 0; i--) { b[i] = (byte)(msb & 0xFF); msb >>= 8; }
+        for (int i = 15; i >= 8; i--) { b[i] = (byte)(lsb & 0xFF); lsb >>= 8; }
+        return b;
+    }
+
     private static byte[] rewriteContentToVault(byte[] content, UUID playerUuid) {
-        String uuidStr = playerUuid.toString();
-        byte[] uuidBytes = uuidStr.getBytes(java.nio.charset.StandardCharsets.UTF_8);
-        byte[] tokenBytes = PLAYER_TOKEN.getBytes(java.nio.charset.StandardCharsets.UTF_8);
-        return replaceAll(content, uuidBytes, tokenBytes);
+        // Replace string form: "a289ec68-645c-..." → "__player__"
+        byte[] uuidStrBytes = playerUuid.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        byte[] tokenStrBytes = PLAYER_TOKEN.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        content = replaceAll(content, uuidStrBytes, tokenStrBytes);
+        // Replace binary NBT int-array form (inside playerdata NBT) with zero sentinel
+        content = replaceNbtUuid(content, uuidToBinaryBigEndian(playerUuid), NBT_UUID_TOKEN);
+        return content;
     }
 
     private static byte[] rewriteContentFromVault(byte[] content, UUID playerUuid) {
-        byte[] tokenBytes = PLAYER_TOKEN.getBytes(java.nio.charset.StandardCharsets.UTF_8);
-        byte[] uuidBytes = playerUuid.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8);
-        return replaceAll(content, tokenBytes, uuidBytes);
+        // Replace string form: "__player__" → "a289ec68-645c-..."
+        byte[] tokenStrBytes = PLAYER_TOKEN.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        byte[] uuidStrBytes = playerUuid.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        content = replaceAll(content, tokenStrBytes, uuidStrBytes);
+        // Replace binary NBT int-array sentinel with the target player's UUID
+        content = replaceNbtUuid(content, NBT_UUID_TOKEN, uuidToBinaryBigEndian(playerUuid));
+        return content;
+    }
+
+    /**
+     * Replaces the 16-byte UUID payload that follows an NBT int-array "UUID" tag header.
+     * Only replaces occurrences where {@code fromUuid} matches; leaves all other data intact.
+     */
+    private static byte[] replaceNbtUuid(byte[] src, byte[] fromUuid, byte[] toUuid) {
+        int headerLen = NBT_UUID_HEADER.length; // 11 bytes
+        int limit = src.length - headerLen - 16;
+        if (limit < 0) return src;
+        ByteArrayOutputStream out = null; // lazy-init only if a replacement is needed
+        int i = 0;
+        while (i <= limit) {
+            if (matches(src, i, NBT_UUID_HEADER) && matches(src, i + headerLen, fromUuid)) {
+                if (out == null) {
+                    out = new ByteArrayOutputStream(src.length);
+                    out.write(src, 0, i);
+                }
+                out.write(NBT_UUID_HEADER, 0, headerLen);
+                out.write(toUuid, 0, 16);
+                i += headerLen + 16;
+            } else {
+                if (out != null) out.write(src[i]);
+                i++;
+            }
+        }
+        if (out == null) return src;
+        if (i < src.length) out.write(src, i, src.length - i);
+        return out.toByteArray();
     }
 
     private static byte[] replaceAll(byte[] src, byte[] from, byte[] to) {
@@ -170,10 +226,11 @@ public class VaultManager {
         String uuidStr = playerUuid.toString();
         try { Files.createDirectories(vaultDir); } catch (IOException ignored) { return; }
 
-        List<Path> dirsToScan = new ArrayList<>();
+        // Per-player directories: only copy files that contain the player UUID in their path.
+        List<Path> playerDirs = new ArrayList<>();
         for (String d : new String[]{"playerdata", "advancements", "stats"}) {
             Path p = worldDir.resolve(d);
-            if (Files.isDirectory(p)) dirsToScan.add(p);
+            if (Files.isDirectory(p)) playerDirs.add(p);
         }
         try (Stream<Path> top = Files.list(worldDir)) {
             top.filter(Files::isDirectory)
@@ -182,12 +239,13 @@ public class VaultManager {
                         return !IGNORED_WORLD_DIRS.contains(n)
                                 && !n.equals("playerdata")
                                 && !n.equals("advancements")
-                                && !n.equals("stats");
+                                && !n.equals("stats")
+                                && !n.equals("data");
                     })
-                    .forEach(dirsToScan::add);
+                    .forEach(playerDirs::add);
         } catch (IOException ignored) {}
 
-        for (Path dir : dirsToScan) {
+        for (Path dir : playerDirs) {
             try (Stream<Path> walk = Files.walk(dir)) {
                 walk.filter(Files::isRegularFile)
                         .filter(f -> !isBackupFile(f))
@@ -206,6 +264,26 @@ public class VaultManager {
                         });
             } catch (IOException ignored) {}
         }
+
+        // data/ directory: save ALL files without UUID filtering.
+        // Mods like Sophisticated Backpacks store per-item inventories here keyed by
+        // item UUID, not player UUID — so the player UUID filter would miss them entirely.
+        Path dataDir = worldDir.resolve("data");
+        if (Files.isDirectory(dataDir)) {
+            try (Stream<Path> walk = Files.walk(dataDir)) {
+                walk.filter(Files::isRegularFile)
+                        .filter(f -> !isBackupFile(f))
+                        .forEach(file -> {
+                            String rel = worldDir.relativize(file).toString().replace("\\", "/");
+                            Path target = vaultDir.resolve(rel);
+                            try {
+                                Files.createDirectories(target.getParent());
+                                Files.copy(file, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                            } catch (IOException ignored) {}
+                        });
+            } catch (IOException ignored) {}
+        }
+
         NBT_CACHE.remove(characterId);
     }
 
@@ -368,6 +446,17 @@ public class VaultManager {
         return baos.toByteArray();
     }
 
+    /**
+     * Serializes the player NBT from memory and replaces the player's UUID with
+     * the {@code __player__} token so it can be stored safely in the vault.
+     * Use this instead of {@link #serializePlayerNbt} whenever the result will be
+     * written to the vault (tick sync, disconnect sync, etc.).
+     */
+    public static byte[] serializePlayerNbtTokenized(net.minecraft.server.network.ServerPlayerEntity player) throws IOException {
+        byte[] raw = serializePlayerNbt(player);
+        return rewriteContentToVault(raw, player.getUuid());
+    }
+
     // ── Sync collectors ─────────────────────────────────────────────
 
     public static Map<String, byte[]> collectEssentialFiles(UUID characterId, Path worldDir, UUID playerUuid) {
@@ -375,6 +464,7 @@ public class VaultManager {
     }
 
     public static Map<String, byte[]> collectModFiles(UUID characterId, Path worldDir, UUID playerUuid) {
+        // UUID-filtered mod directories (per-player files named with the player UUID)
         List<String> modDirs = new ArrayList<>();
         try (Stream<Path> top = Files.list(worldDir)) {
             top.filter(Files::isDirectory)
@@ -383,11 +473,28 @@ public class VaultManager {
                         return !IGNORED_WORLD_DIRS.contains(n)
                                 && !n.equals("playerdata")
                                 && !n.equals("advancements")
-                                && !n.equals("stats");
+                                && !n.equals("stats")
+                                && !n.equals("data");
                     })
                     .forEach(d -> modDirs.add(d.getFileName().toString()));
         } catch (IOException ignored) {}
-        return collectFromDirs(worldDir, playerUuid, modDirs);
+        Map<String, byte[]> result = new java.util.LinkedHashMap<>(collectFromDirs(worldDir, playerUuid, modDirs));
+
+        // data/ directory: collect ALL files without UUID filtering
+        Path dataDir = worldDir.resolve("data");
+        if (Files.isDirectory(dataDir)) {
+            try (Stream<Path> walk = Files.walk(dataDir)) {
+                walk.filter(Files::isRegularFile)
+                        .filter(f -> !isBackupFile(f))
+                        .forEach(file -> {
+                            String rel = worldDir.relativize(file).toString().replace("\\", "/");
+                            try {
+                                result.put(rel, Files.readAllBytes(file));
+                            } catch (IOException ignored) {}
+                        });
+            } catch (IOException ignored) {}
+        }
+        return result;
     }
 
     private static Map<String, byte[]> collectFromDirs(Path worldDir, UUID playerUuid, List<String> dirNames) {

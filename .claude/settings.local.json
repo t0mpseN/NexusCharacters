@@ -44,7 +44,10 @@
       "Bash(2)",
       "Bash(find /c/Users/tompsen/source/repos/Nexus/run/nexuscharacters/vaults -type f -path *pokedex*)",
       "Bash(done)",
-      "Bash(./gradlew compileJava compileTestJava --no-daemon -q)"
+      "Bash(./gradlew compileJava compileTestJava --no-daemon -q)",
+      "Bash(./gradlew --quiet)",
+      "Bash(sort find:*)",
+      "Bash(find C:/Users/tompsen/source/repos/Nexus/run -name *sophisticated* -o -name *backpack*)"
     ]
   }
 }
