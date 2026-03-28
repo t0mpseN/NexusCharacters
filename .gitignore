@@ -39,3 +39,6 @@ replay_*.log
 *.hprof
 *.jfr
 latest.log
+.claude
+.gitignore
+/.claude/
