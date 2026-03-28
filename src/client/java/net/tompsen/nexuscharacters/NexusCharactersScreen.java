@@ -29,6 +29,7 @@ public class NexusCharactersScreen extends Screen {
     private double scrollAmount = 0;
     private final int stride = CharacterCardRenderer.CARD_H + 6;
     private boolean isSwitchingScreen = false;
+    private boolean lastShowEquipment = CharacterUiHelper.showEquipment;
     private ModelToggleButton equipmentToggle;
     private ModelToggleButton rotateToggle;
 
@@ -189,7 +190,17 @@ public class NexusCharactersScreen extends Screen {
 
         ctx.getMatrices().pop();
 
-        if (!tooltipItem.isEmpty()) ctx.drawItemTooltip(textRenderer, tooltipItem, mouseX, mouseY);
+        if (!tooltipItem.isEmpty()) drawSafeItemTooltip(ctx, tooltipItem, mouseX, mouseY);
+    }
+
+    private void drawSafeItemTooltip(DrawContext ctx, ItemStack stack, int x, int y) {
+        try {
+            ctx.drawItemTooltip(textRenderer, stack, x, y);
+        } catch (Exception e) {
+            try {
+                ctx.drawTooltip(textRenderer, stack.getName(), x, y);
+            } catch (Exception ignored) {}
+        }
     }
 
     @Override
@@ -262,9 +273,12 @@ public class NexusCharactersScreen extends Screen {
 
         OtherClientPlayerEntity dummy = DummyPlayerManager.getDummyPlayer(c);
         if (dummy != null) {
-            CharacterUiHelper.injectCameraIfNeeded(client);
+            // Apply equipment visibility only when the toggle changes, not every frame.
+            if (CharacterUiHelper.showEquipment != lastShowEquipment) {
+                lastShowEquipment = CharacterUiHelper.showEquipment;
+                DummyPlayerManager.applyEquipmentVisibility(lastShowEquipment);
+            }
 
-            // Fixed rotation: Full 360 loop, looking straight ahead
             float angle = (System.currentTimeMillis() % 5000) / 5000.0f * (float)Math.PI * 2.0f;
             float centerX = boxX + boxW / 2f;
             float targetX = centerX + (float)Math.sin(angle) * 100f;
@@ -272,15 +286,6 @@ public class NexusCharactersScreen extends Screen {
 
             float entityX = CharacterUiHelper.autoRotate ? targetX : (float)mouseX;
             float entityY = CharacterUiHelper.autoRotate ? targetY : (float)mouseY;
-
-            // Equipment toggle
-            if (!CharacterUiHelper.showEquipment) {
-                dummy.getInventory().armor.forEach(stack -> stack.setCount(0));
-                dummy.getInventory().offHand.forEach(stack -> stack.setCount(0));
-                dummy.getInventory().main.forEach(stack -> stack.setCount(0));
-            } else {
-                DummyPlayerManager.invalidateDummies();
-            }
 
             InventoryScreen.drawEntity(ctx, boxX + 6, boxY + 16, boxX + boxW - 6, boxY + boxH - 10, 60, 0.0625F, entityX, entityY, dummy);
         }

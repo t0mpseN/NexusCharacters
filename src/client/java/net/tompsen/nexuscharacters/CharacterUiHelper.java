@@ -6,7 +6,6 @@ import com.google.gson.JsonParser;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.font.TextRenderer;
 import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.render.entity.EntityRenderDispatcher;
 import net.minecraft.component.DataComponentTypes;
 import net.minecraft.component.type.NbtComponent;
 import net.minecraft.item.ItemStack;
@@ -108,14 +107,8 @@ public class CharacterUiHelper {
     }
 
     public static void injectCameraIfNeeded(MinecraftClient client) {
-        try {
-            EntityRenderDispatcher dispatcher = client.getEntityRenderDispatcher();
-            java.lang.reflect.Field cameraField = EntityRenderDispatcher.class.getDeclaredField("camera");
-            cameraField.setAccessible(true);
-            if (cameraField.get(dispatcher) == null) cameraField.set(dispatcher, net.minecraft.client.render.Camera.class.getDeclaredConstructor().newInstance());
-        } catch (Throwable e) {
-            NexusCharacters.LOGGER.error("[NexusCharacters] Camera inject fail:", e);
-        }
+        // InventoryScreen.drawEntity sets up the camera/dispatcher internally,
+        // so no manual injection is needed. Left as a no-op to avoid breaking callers.
     }
 
     public static PlayerStatsInfo getPlayerStats(CharacterDto c) {
@@ -288,11 +281,44 @@ public class CharacterUiHelper {
 
     private static String resolveTextComponent(JsonElement el) {
         if (el == null) return null;
+
+        // Plain string — e.g. "My Advancement"
+        if (el.isJsonPrimitive()) return el.getAsString();
+
+        if (el.isJsonObject()) {
+            JsonObject obj = el.getAsJsonObject();
+
+            // Translation key — e.g. {"translate": "advancements.mod.foo.title"}
+            // Try the MC Text deserialiser first; fall back to a manual lang lookup.
+            if (obj.has("translate")) {
+                String key = obj.get("translate").getAsString();
+                try {
+                    Text text = Text.Serialization.fromJson(el.toString(), DummyWorldManager.getRegistries());
+                    if (text != null) {
+                        String result = text.getString();
+                        // If the result is the raw key the translation is missing; try lang directly.
+                        if (!result.equals(key)) return result;
+                    }
+                } catch (Exception ignored) {}
+                net.minecraft.util.Language lang = net.minecraft.util.Language.getInstance();
+                if (lang.hasTranslation(key)) return lang.get(key);
+                return key; // last resort: show the raw key rather than nothing
+            }
+
+            // Literal text object — e.g. {"text": "My Advancement"}
+            if (obj.has("text")) return obj.get("text").getAsString();
+        }
+
+        // Array of components — use the first one
+        if (el.isJsonArray() && el.getAsJsonArray().size() > 0) {
+            return resolveTextComponent(el.getAsJsonArray().get(0));
+        }
+
+        // Generic fallback through MC deserialiser
         try {
             Text text = Text.Serialization.fromJson(el.toString(), DummyWorldManager.getRegistries());
             return text != null ? text.getString() : null;
-        } catch (Exception e) {
-            if (el.isJsonPrimitive()) return el.getAsString();
+        } catch (Exception ignored) {
             return null;
         }
     }

@@ -7,7 +7,8 @@
 		"WorldEntryMixin",
 		"CreateWorldScreenMixin",
 		"CreateWorldScreenAccessor",
-		"LivingEntityRendererMixin"
+		"LivingEntityRendererMixin",
+		"FeatureRendererMixin"
 	],
 	"injectors": {
 		"defaultRequire": 1

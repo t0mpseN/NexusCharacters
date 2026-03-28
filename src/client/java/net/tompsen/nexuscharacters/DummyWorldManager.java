@@ -85,7 +85,11 @@ public class DummyWorldManager {
 
     public static ClientWorld getDummyWorld() {
         MinecraftClient client = MinecraftClient.getInstance();
-        if (client.world != null) return client.world;
+        // Always use an isolated fake world — never the real client.world.
+        // Other mods attach rendering layers (e.g. SlimedLayer from Supplementaries) that
+        // call PlayerLookup.tracking(world), which throws on any ClientWorld because that
+        // API is server-only. Using a fake world that doesn't route through the real entity
+        // attachment / networking system prevents this crash.
         if (dummyWorld == null) dummyWorld = buildFakeWorld(client);
         if (dummyWorld == null) {
             NexusCharacters.LOGGER.error("[NexusCharacters] Falha ao criar dummyWorld — veja erro acima");
