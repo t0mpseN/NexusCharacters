@@ -18,12 +18,14 @@
   <summary>📚 Table of Contents</summary>
 
 - [✨ Core Features](#-core-features)
-  - [👤 Character Creation](#-character-creation)
-  - [🌉 Cross-World Progression](#-cross-world-progression)
-  - [⚠️ Hardcore Characters](#hardcore-characters)
+  - [Character Creation](#character-creation)
+  - [Cross-World Progression](#cross-world-progression)
+  - [Hardcore Characters](#hardcore-characters)
 - [🚀 Extended Capabilities](#-extended-capabilities)
   - [Deep Mod Compatibility](#deep-mod-compatibility)
   - [Multiplayer Support](#multiplayer-support)
+  - [Legacy Data Migration](#legacy-data-migration)
+  - [Autosave Interval Command (Server/LAN only)](#autosave-interval-command)
 - [🛠️ Installation & Setup](#installation-setup)
 - [🤝 Feedback and Support](#-feedback-and-support)
 - [📄 License](#-license)
@@ -40,7 +42,7 @@ Instead of starting from scratch every time you create a new world, Nexus Charac
 
 # ✨ Core Features
 
-## 👤 Character Creation
+## Character Creation
 Create unique identities for your different playthroughs. When making a new character, you have complete control over their identity and playstyle:
 
 - **Custom Naming:** Give your character a unique identity.
@@ -51,7 +53,7 @@ Create unique identities for your different playthroughs. When making a new char
 
 <br/>
 
-## 🌉 Cross-World Progression
+## Cross-World Progression
 Your character's journey doesn't end when you leave a world. Everything that defines your character travels with them:
 
 - Health and hunger stats
@@ -63,7 +65,7 @@ Your character's journey doesn't end when you leave a world. Everything that def
 
 <br/>
 
-## <a id="hardcore-characters"></a>⚠️ Hardcore Characters
+## Hardcore Characters
 
 Love the thrill of Hardcore but hate losing a beautiful world you spent hours building? Nexus Characters introduces Hardcore Characters.
 
@@ -93,7 +95,7 @@ If you are adding Nexus Characters to an existing world where you already have p
 > [!WARNING]
 > **Important:** When you do this, your character's current progress will be **completely overwritten** by the legacy data from that world. If you want to enter a legacy world but keep your cross-world character's existing progress, ensure your character is named **differently** from your Minecraft username!
 
-## ⚙️ Server & LAN Command
+## <a id="autosave-interval-command"></a>Autosave Interval Command (Server/LAN only)
 If you are hosting a Server or a LAN world, you can manage how often non-vanilla data is synced to players:
 
 - `/nexus saveinterval <time in seconds>` *(Default: 30s)*
@@ -102,13 +104,18 @@ If you are hosting a Server or a LAN world, you can manage how often non-vanilla
 > [!IMPORTANT]
 > **Syncing Delay:** Even if you define the interval to `1 second`, it still takes time for the server to send the data to the client, and for the client to save it properly to disk. Because of this, **you should wait 1 to 2 minutes before disconnecting** after doing something important related to mods to avoid losing progress! Also, the shorter the interval, the heavier will be server load.
 
+<img width="1899" height="989" alt="image" src="https://github.com/user-attachments/assets/91e822a7-daa5-41cd-a0c7-88031097ae70" />
+
+> Character Model Showcase in RPG Origins modpack
+
+
 <br/>
 
 # <a id="installation-setup"></a>🛠️ Installation & Setup
 > [!IMPORTANT]
 > **Note:** Make sure you are using Fabric as your mod loader and Minecraft 1.21.1.
 1. Download the latest version of **Nexus Characters** from the [releases](https://github.com/t0mpseN/NexusCharacters/releases) page
-2. Drop the `.jar` file into your Minecraft `mods` folder (same thing for servers)
+2. Drop the `.jar` file into your Minecraft `mods` folder (do the same for servers)
 3. Launch the game and access the new **"Characters"** menu from the title screen
 
 <br/>
