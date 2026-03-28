@@ -84,6 +84,24 @@ Nexus Characters doesn't just save vanilla data. It integrates deeply with your 
 
 Take your characters online! Nexus Characters is fully compatible with dedicated servers. Server owners can install the mod to allow players to bring their cross-world characters into the community, or restrict servers to specific character types.
 
+## Legacy Data Migration
+If you are adding Nexus Characters to an existing world where you already have progress, you can easily inherit your old data!
+
+- **How to Inherit:** Create a new character and set the **Character Name** to perfectly match your **Minecraft Username** (the account that originally played in that world). 
+- **Security:** You can only inherit your *own* legacy data. For example, if you are `Player1` and your friend is `Player2`, you cannot create a character named `Player2` to steal their progress. 
+
+> [!WARNING]
+> **Important:** When you do this, your character's current progress will be **completely overwritten** by the legacy data from that world. If you want to enter a legacy world but keep your cross-world character's existing progress, ensure your character is named **differently** from your Minecraft username!
+
+## ⚙️ Server & LAN Command
+If you are hosting a Server or a LAN world, you can manage how often non-vanilla data is synced to players:
+
+- `/nexus saveinterval <time in seconds>` *(Default: 30s)*
+  Alters the time between autosaves for data coming from external mods (e.g., catching a Pokémon or updating your Pokédex). 
+
+> [!IMPORTANT]
+> **Syncing Delay:** Even if you define the interval to `1 second`, it still takes time for the server to send the data to the client, and for the client to save it properly to disk. Because of this, **you should wait 1 to 2 minutes before disconnecting** after doing something important related to mods to avoid losing progress! Also, the shorter the interval, the heavier will be server load.
+
 <br/>
 
 # <a id="installation-setup"></a>🛠️ Installation & Setup
