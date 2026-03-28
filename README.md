@@ -61,7 +61,7 @@ Your character's journey doesn't end when you leave a world. Everything that def
 - Full inventory and equipped armor
 - Advancements and statistics
 
-![Character Creation](demo/concept.gif)
+![Cross-World Progression](demo/concept.gif)
 
 <br/>
 
@@ -72,7 +72,7 @@ Love the thrill of Hardcore but hate losing a beautiful world you spent hours bu
 - If your Hardcore Character dies, they are permanently erased from your character list.
 - **The World Survives:** The world they died in remains perfectly intact. You can roll a brand-new character, travel to that same world, and find your fallen character's base (or avenge them!).
 
-![Character Creation](demo/hardcore_death.gif)
+![Hardcore Characters](demo/hardcore_death.gif)
 
 <br/>
 
