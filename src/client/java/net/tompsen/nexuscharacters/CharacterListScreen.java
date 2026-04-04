@@ -179,6 +179,15 @@ public class CharacterListScreen extends Screen {
             tooltipItem = drawRightPanel(ctx, textRenderer, activeChar, cx + cwValue, cy, ch, smX, smY);
             if (equipmentToggle != null) equipmentToggle.visible = true;
             if (rotateToggle != null) rotateToggle.visible = true;
+
+            java.util.List<String> missingMods = VaultManager.detectPotentiallyMissingMods(activeChar.id());
+            if (!missingMods.isEmpty()) {
+                int totalW = 220 + 12 + cwValue + 12 + 270;
+                int startX = cx - 220 - 12;
+                int warnH = CharacterUiHelper.getWarningPanelHeight(textRenderer, missingMods, totalW);
+                int warnY = Math.max(2, cy - warnH - 12);
+                CharacterUiHelper.drawModWarningPanel(ctx, textRenderer, missingMods, startX, warnY, totalW);
+            }
         } else {
             if (equipmentToggle != null) equipmentToggle.visible = false;
             if (rotateToggle != null) rotateToggle.visible = false;
@@ -345,8 +354,8 @@ public class CharacterListScreen extends Screen {
             int sx = startX + i * (slotSize + gap);
             CharacterUiHelper.drawMinecraftRect(ctx, sx, hotbarY, slotSize, slotSize);
             if (!invItems[i].isEmpty()) {
-                ctx.drawItem(invItems[i], sx + 2, hotbarY + 2);
-                ctx.drawItemInSlot(tr, invItems[i], sx + 2, hotbarY + 2);
+                CharacterUiHelper.drawSafeItem(ctx, invItems[i], sx + 2, hotbarY + 2);
+                CharacterUiHelper.drawSafeItemInSlot(ctx, tr, invItems[i], sx + 2, hotbarY + 2);
                 if (mouseX >= sx && mouseX <= sx + slotSize && mouseY >= hotbarY && mouseY <= hotbarY + slotSize) hoveredItem = invItems[i];
             }
         }
@@ -366,8 +375,8 @@ public class CharacterListScreen extends Screen {
 
             int itemSlot = i + 9;
             if (!invItems[itemSlot].isEmpty()) {
-                ctx.drawItem(invItems[itemSlot], sx + 2, sy + 2);
-                ctx.drawItemInSlot(tr, invItems[itemSlot], sx + 2, sy + 2);
+                CharacterUiHelper.drawSafeItem(ctx, invItems[itemSlot], sx + 2, sy + 2);
+                CharacterUiHelper.drawSafeItemInSlot(ctx, tr, invItems[itemSlot], sx + 2, sy + 2);
                 if (mouseX >= sx && mouseX <= sx + slotSize && mouseY >= sy && mouseY <= sy + slotSize) hoveredItem = invItems[itemSlot];
             }
         }
@@ -381,8 +390,8 @@ public class CharacterListScreen extends Screen {
             if (invItems[armorSlot].isEmpty()) {
                 ctx.drawTexture(CharacterUiHelper.ARMOR_ICONS[i], armorX + 2, sy + 2, 0, 0, 16, 16, 16, 16);
             } else {
-                ctx.drawItem(invItems[armorSlot], armorX + 2, sy + 2);
-                ctx.drawItemInSlot(tr, invItems[armorSlot], armorX + 2, sy + 2);
+                CharacterUiHelper.drawSafeItem(ctx, invItems[armorSlot], armorX + 2, sy + 2);
+                CharacterUiHelper.drawSafeItemInSlot(ctx, tr, invItems[armorSlot], armorX + 2, sy + 2);
                 if (mouseX >= armorX && mouseX <= armorX + slotSize && mouseY >= sy && mouseY <= sy + slotSize) hoveredItem = invItems[armorSlot];
             }
         }
@@ -433,7 +442,7 @@ public class CharacterListScreen extends Screen {
         CharacterUiHelper.PlayerStatsInfo stats = CharacterUiHelper.getPlayerStats(c);
         int extraY = barY + 14;
 
-        int hours = stats.playTime() / (20 * 60 * 60);
+        int hours = stats.playTime() / (20 * 3600);
         int minutes = (stats.playTime() / (20 * 60)) % 60;
         String timeStr = hours > 0 ? hours + "h " + minutes + "m" : minutes + "m";
         if (stats.playTime() == 0) timeStr = "---";
@@ -490,7 +499,7 @@ public class CharacterListScreen extends Screen {
             ctx.getMatrices().push();
             ctx.getMatrices().translate(iconBoxX + 3, iconBoxY + 3, 100);
             ctx.getMatrices().scale(1.5f, 1.5f, 1.0f);
-            ctx.drawItem(latestAdv.icon(), 0, 0);
+            CharacterUiHelper.drawSafeItem(ctx, latestAdv.icon(), 0, 0);
             ctx.getMatrices().pop();
 
             Text titleTxt = Text.literal(latestAdv.title()).setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterUiHelper.CUSTOM_FONT)).formatted(Formatting.WHITE);

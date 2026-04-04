@@ -21,6 +21,7 @@ import net.minecraft.registry.Registries;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 
 public class CharacterUiHelper {
     public static final Identifier CUSTOM_FONT = Identifier.of("nexuscharacters", "nexuscharacters");
@@ -106,6 +107,98 @@ public class CharacterUiHelper {
         ctx.fillGradient(x + 2, y + 2, x + w - 2, y + h - 2, 0xFF1B1B1B, 0xFF141414);
     }
 
+    /**
+     * Guards against mods whose items call client.player.getInventory() (or similar)
+     * inside hasGlint() / getTooltip(), which crashes when player is null (pre-join screens).
+     */
+    public static void drawSafeItem(DrawContext ctx, net.minecraft.item.ItemStack stack, int x, int y) {
+        if (stack.isEmpty()) return;
+        try { ctx.drawItem(stack, x, y); } catch (Exception ignored) {}
+    }
+
+    public static void drawSafeItemInSlot(DrawContext ctx, TextRenderer tr, net.minecraft.item.ItemStack stack, int x, int y) {
+        if (stack.isEmpty()) return;
+        try { ctx.drawItemInSlot(tr, stack, x, y); } catch (Exception ignored) {}
+    }
+
+    /**
+     * Draws a self-contained warning panel below the character-list center panel when the
+     * active character's vault contains directories for mods that are not currently loaded.
+     */
+    public static void drawModWarningPanel(DrawContext ctx, TextRenderer tr, List<String> missingMods, int x, int y, int w) {
+        String warningText =
+                "This character has data from mods not present in this instance. Joining may result in PERMANENT loss of these items/data. "
+                + "We recommend making a backup or storing modded items in a chest (on the previous instance/modpack) before proceeding.";
+        
+        Text warnText = Text.literal(warningText).setStyle(net.minecraft.text.Style.EMPTY.withFont(CUSTOM_FONT));
+        List<net.minecraft.text.OrderedText> warnLines = tr.wrapLines(warnText, w - 22);
+        int numLines = Math.min(3, warnLines.size());
+
+        StringBuilder sb = new StringBuilder("Missing: ");
+        for (int i = 0; i < missingMods.size(); i++) {
+            if (i > 0) sb.append(", ");
+            sb.append(missingMods.get(i));
+        }
+        Text modNamesText = Text.literal(sb.toString()).setStyle(net.minecraft.text.Style.EMPTY.withFont(CUSTOM_FONT));
+        List<net.minecraft.text.OrderedText> modNameLines = tr.wrapLines(modNamesText, w - 22);
+        int modLineCount = Math.min(1, modNameLines.size());
+
+        // height: 6 top + 10 header + 4 sep + (numLines*10) warn + (modLineCount*10) mods + 6 bottom
+        int h = 6 + 10 + 4 + (numLines * 10) + (modLineCount * 10) + 6;
+
+        // Shadow + outer border
+        ctx.fill(x + 4, y + 4, x + w + 4, y + h + 4, 0x60000000);
+        ctx.fill(x - 2, y - 2, x + w + 2, y + h + 2, 0xFF000000);
+
+        // Background gradient (dark orange/brown)
+        ctx.fill(x, y, x + w, y + h, 0xFF1E0E00);
+        ctx.fill(x, y, x + w - 4, y + h - 4, 0xFF2E1800);
+        ctx.fillGradient(x + 4, y + 4, x + w - 4, y + h - 4, 0xFF261200, 0xFF180900);
+
+        // Orange accent line at top
+        ctx.fill(x, y, x + w, y + 2, 0xFFFF8800);
+
+        // Header: ⚠︎ WARNING
+        Text header = Text.literal("WARNING").setStyle(net.minecraft.text.Style.EMPTY.withFont(CUSTOM_FONT));
+        drawRetroText(ctx, tr, header, x + 10, y + 6, 0xFFFF8800);
+
+        // Separator
+        int sepY = y + 16 + 2;
+        ctx.fill(x + 6, sepY, x + w - 6, sepY + 1, 0xFF4A2800);
+
+        // Warning text lines
+        int lineY = sepY + 4;
+        for (int i = 0; i < numLines; i++) {
+            ctx.drawText(tr, warnLines.get(i), x + 11, lineY + 1, 0xFF000000, false);
+            ctx.drawText(tr, warnLines.get(i), x + 10, lineY, 0xFFBBAA88, false);
+            lineY += 10;
+        }
+
+        // Missing mod names at the bottom
+        if (modLineCount > 0) {
+            ctx.drawText(tr, modNameLines.get(0), x + 11, lineY + 1, 0xFF000000, false);
+            ctx.drawText(tr, modNameLines.get(0), x + 10, lineY, 0xFFBB8800, false);
+        }
+    }
+
+    public static int getWarningPanelHeight(TextRenderer tr, List<String> missingMods, int w) {
+        String warningText =
+                "Warning: This character has data from mods not present in this instance. Joining may result in PERMANENT loss of these items/data. "
+                + "We recommend making a backup or storing modded items in a chest before proceeding.";
+        Text warnText = Text.literal(warningText).setStyle(net.minecraft.text.Style.EMPTY.withFont(CUSTOM_FONT));
+        int numLines = Math.min(3, tr.wrapLines(warnText, w - 22).size());
+
+        StringBuilder sb = new StringBuilder("Missing: ");
+        for (int i = 0; i < missingMods.size(); i++) {
+            if (i > 0) sb.append(", ");
+            sb.append(missingMods.get(i));
+        }
+        Text modNamesText = Text.literal(sb.toString()).setStyle(net.minecraft.text.Style.EMPTY.withFont(CUSTOM_FONT));
+        int modLineCount = Math.min(1, tr.wrapLines(modNamesText, w - 22).size());
+
+        return 6 + 10 + 4 + (numLines * 10) + (modLineCount * 10) + 6;
+    }
+
     public static void injectCameraIfNeeded(MinecraftClient client) {
         // InventoryScreen.drawEntity sets up the camera/dispatcher internally,
         // so no manual injection is needed. Left as a no-op to avoid breaking callers.
@@ -120,9 +213,12 @@ public class CharacterUiHelper {
                 if (json.has("stats")) {
                     JsonObject stats = json.getAsJsonObject("stats");
                     if (stats.has("minecraft:mined")) {
-                        for (var entry : stats.getAsJsonObject("minecraft:mined").entrySet()) {
+                        JsonObject mined = stats.getAsJsonObject("minecraft:mined");
+                        for (var entry : mined.entrySet()) {
                             blocksMined += entry.getValue().getAsInt();
                         }
+                        if (mined.has("minecraft:diamond_ore")) diamonds += mined.get("minecraft:diamond_ore").getAsInt();
+                        if (mined.has("minecraft:deepslate_diamond_ore")) diamonds += mined.get("minecraft:deepslate_diamond_ore").getAsInt();
                     }
                     if (stats.has("minecraft:killed")) {
                         for (var entry : stats.getAsJsonObject("minecraft:killed").entrySet()) {
@@ -131,7 +227,7 @@ public class CharacterUiHelper {
                     }
                     if (stats.has("minecraft:custom")) {
                         JsonObject custom = stats.getAsJsonObject("minecraft:custom");
-                        if (custom.has("minecraft:play_time")) playTime = custom.get("minecraft:play_time").getAsInt() / 20;
+                        if (custom.has("minecraft:play_time")) playTime = custom.get("minecraft:play_time").getAsInt();
                         if (custom.has("minecraft:mob_kills")) mobKills = custom.get("minecraft:mob_kills").getAsInt();
                     }
                 }

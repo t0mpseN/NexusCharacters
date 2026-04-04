@@ -43,6 +43,7 @@ public class VaultManager {
     // ── NBT cache (UI-only) ───────────────────
 
     private static final Map<UUID, NbtCompound> NBT_CACHE = new HashMap<>();
+    private static final Map<UUID, List<String>> MISSING_MODS_CACHE = new HashMap<>();
 
     // ── Path resolution ──────────────────────────────────────────────────────
 
@@ -499,8 +500,38 @@ public class VaultManager {
         try { return Files.readString(file); } catch (IOException e) { return null; }
     }
 
-    public static void invalidateCache(UUID characterId) { NBT_CACHE.remove(characterId); }
-    public static void invalidateAll() { NBT_CACHE.clear(); }
+    public static void invalidateCache(UUID characterId) {
+        NBT_CACHE.remove(characterId);
+        MISSING_MODS_CACHE.remove(characterId);
+    }
+    public static void invalidateAll() {
+        NBT_CACHE.clear();
+        MISSING_MODS_CACHE.clear();
+    }
+
+    /**
+     * Returns mod directory names found in the vault that don't correspond to any
+     * currently loaded mod. These represent mods whose data was saved with this
+     * character but may not be installed in the current instance.
+     * Results are cached until the vault cache is invalidated.
+     */
+    public static List<String> detectPotentiallyMissingMods(UUID characterId) {
+        return MISSING_MODS_CACHE.computeIfAbsent(characterId, id -> {
+            Path vaultDir = getVaultDir(id);
+            if (!Files.isDirectory(vaultDir)) return List.of();
+            Set<String> standardDirs = Set.of("playerdata", "advancements", "stats", "data");
+            List<String> missing = new ArrayList<>();
+            try (Stream<Path> top = Files.list(vaultDir)) {
+                top.filter(Files::isDirectory)
+                   .map(p -> p.getFileName().toString())
+                   .filter(n -> !standardDirs.contains(n))
+                   .forEach(n -> {
+                       if (!FabricLoader.getInstance().isModLoaded(n)) missing.add(n);
+                   });
+            } catch (IOException ignored) {}
+            return List.copyOf(missing);
+        });
+    }
 
     public static byte[] serializePlayerNbt(net.minecraft.server.network.ServerPlayerEntity player) throws IOException {
         NbtCompound nbt = new NbtCompound();
