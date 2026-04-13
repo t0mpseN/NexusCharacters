@@ -45,7 +45,7 @@ public class ConfirmDeleteScreen extends Screen {
     }
 
     @Override
-    public void renderBackground(DrawContext ctx, int mouseX, int mouseY, float delta) {
+    public void renderBackground(DrawContext ctx) {
         // Parent screen needs to remain visible underneath
     }
 

@@ -1,17 +1,18 @@
 package net.tompsen.nexuscharacters;
 
 import com.mojang.authlib.GameProfile;
+import com.mojang.authlib.minecraft.MinecraftProfileTexture;
 import com.mojang.authlib.properties.Property;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.network.OtherClientPlayerEntity;
 import net.minecraft.client.util.DefaultSkinHelper;
-import net.minecraft.client.util.SkinTextures;
 import net.minecraft.client.world.ClientWorld;
 import net.minecraft.entity.EquipmentSlot;
 import net.minecraft.item.FilledMapItem;
 import net.minecraft.item.ItemStack;
 import net.minecraft.nbt.NbtCompound;
 import net.minecraft.nbt.NbtList;
+import net.minecraft.util.Identifier;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -20,7 +21,7 @@ import java.util.UUID;
 public class DummyPlayerManager {
 
     private static final Map<UUID, OtherClientPlayerEntity> DUMMY_CACHE = new HashMap<>();
-    private static final Map<UUID, SkinTextures> SKIN_CACHE = new HashMap<>();
+    private static final Map<UUID, Identifier> SKIN_CACHE = new HashMap<>();
 
     // ── Subclasse que bypassa o getNetworkHandler() ──────────────────────────
     static class DummyClientPlayer extends OtherClientPlayerEntity implements NexusDummyEntity {
@@ -42,16 +43,11 @@ public class DummyPlayerManager {
         }
 
         @Override
-        public SkinTextures getSkinTextures() {
-            SkinTextures cached = SKIN_CACHE.get(characterId);
+        public Identifier getSkinTexture() {
+            Identifier cached = SKIN_CACHE.get(characterId);
             if (cached != null) return cached;
-            return DefaultSkinHelper.getSkinTextures(
+            return DefaultSkinHelper.getTexture(
                     DummyPlayerManager.resolveDefaultSkinUUID(characterId));
-        }
-
-        @Override
-        public boolean isPartVisible(net.minecraft.entity.player.PlayerModelPart part) {
-            return true;
         }
 
         @Override
@@ -124,7 +120,7 @@ public class DummyPlayerManager {
             for (int i = 0; i < inventory.size(); i++) {
                 NbtCompound itemTag = inventory.getCompound(i);
                 int slot = itemTag.getByte("Slot") & 255;
-                ItemStack stack = ItemStack.fromNbtOrEmpty(DummyWorldManager.getRegistries(), itemTag);
+                ItemStack stack = ItemStack.fromNbt(itemTag);
 
                 if (!stack.isEmpty()) {
                     if (slot == 100) dummy.equipStack(EquipmentSlot.FEET, stack);
@@ -142,17 +138,19 @@ public class DummyPlayerManager {
             }
         }
 
-        if (skinVal != null && !skinVal.isEmpty()) {
-            // Skin custom: usa o profile que já tem a property textures
-            MinecraftClient.getInstance().getSkinProvider()
-                    .fetchSkinTextures(profile)
-                    .thenAccept(textures -> SKIN_CACHE.put(character.id(), textures));
-        } else {
-            // Usa character.id() diretamente — cada personagem tem seu UUID único → skin default única
-            MinecraftClient.getInstance().getSkinProvider()
-                    .fetchSkinTextures(new GameProfile(character.id(), character.name()))
-                    .thenAccept(textures -> SKIN_CACHE.put(character.id(), textures));
-        }
+        GameProfile loadProfile = (skinVal != null && !skinVal.isEmpty())
+                ? profile
+                : new GameProfile(character.id(), character.name());
+        UUID charId = character.id();
+        MinecraftClient.getInstance().getSkinProvider().loadSkin(
+                loadProfile,
+                (type, textureId, minecraftProfileTexture) -> {
+                    if (type == MinecraftProfileTexture.Type.SKIN) {
+                        SKIN_CACHE.put(charId, textureId);
+                    }
+                },
+                true
+        );
 
         DUMMY_CACHE.put(character.id(), dummy);
         return dummy;
@@ -166,8 +164,8 @@ public class DummyPlayerManager {
                 || stack.isOf(net.minecraft.item.Items.CLOCK);
     }
 
-    public static SkinTextures getSkinTextures(CharacterDto character) {
-        SkinTextures cached = SKIN_CACHE.get(character.id());
+    public static Identifier getSkinIdentifier(CharacterDto character) {
+        Identifier cached = SKIN_CACHE.get(character.id());
         if (cached != null) return cached;
 
         if (character.skinValue() != null && !character.skinValue().isEmpty()) {
@@ -175,13 +173,20 @@ public class DummyPlayerManager {
             profile.getProperties().put("textures",
                     new Property("textures", character.skinValue(),
                             character.skinSignature() != null ? character.skinSignature() : ""));
-            MinecraftClient.getInstance().getSkinProvider()
-                    .fetchSkinTextures(profile)
-                    .thenAccept(t -> SKIN_CACHE.put(character.id(), t));
+            UUID charId = character.id();
+            MinecraftClient.getInstance().getSkinProvider().loadSkin(
+                    profile,
+                    (type, textureId, minecraftProfileTexture) -> {
+                        if (type == MinecraftProfileTexture.Type.SKIN) {
+                            SKIN_CACHE.put(charId, textureId);
+                        }
+                    },
+                    true
+            );
         }
 
-        // Deriva a skin default usando o UUID real do jogador (não o UUID aleatório do character)
-        return DefaultSkinHelper.getSkinTextures(resolveDefaultSkinUUID(character));
+        // Derives default skin using real player UUID (not the character's random UUID)
+        return DefaultSkinHelper.getTexture(resolveDefaultSkinUUID(character));
     }
 
     // Extrai o UUID real guardado, ou usa o id do character como fallback
@@ -240,7 +245,7 @@ public class DummyPlayerManager {
         for (int i = 0; i < inventory.size(); i++) {
             NbtCompound itemTag = inventory.getCompound(i);
             int slot = itemTag.getByte("Slot") & 255;
-            ItemStack stack = ItemStack.fromNbtOrEmpty(DummyWorldManager.getRegistries(), itemTag);
+            ItemStack stack = ItemStack.fromNbt(itemTag);
             if (!stack.isEmpty()) {
                 if (slot == 100) dummy.equipStack(EquipmentSlot.FEET, stack);
                 else if (slot == 101) dummy.equipStack(EquipmentSlot.LEGS, stack);

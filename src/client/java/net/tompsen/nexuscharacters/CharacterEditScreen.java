@@ -129,7 +129,7 @@ public class CharacterEditScreen extends Screen {
     }
 
     @Override
-    public void renderBackground(DrawContext ctx, int mouseX, int mouseY, float delta) {
+    public void renderBackground(DrawContext ctx) {
         // Keeps parent screen visible below the modal
     }
 
@@ -246,8 +246,8 @@ public class CharacterEditScreen extends Screen {
     }
 
     @Override
-    public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
+    public boolean mouseScrolled(double mouseX, double mouseY, double amount) {
         float scale = getScale();
-        return super.mouseScrolled(mouseX / scale, mouseY / scale, horizontalAmount, verticalAmount);
+        return super.mouseScrolled(mouseX / scale, mouseY / scale, amount);
     }
 }

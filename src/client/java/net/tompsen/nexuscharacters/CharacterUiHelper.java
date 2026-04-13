@@ -6,8 +6,6 @@ import com.google.gson.JsonParser;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.font.TextRenderer;
 import net.minecraft.client.gui.DrawContext;
-import net.minecraft.component.DataComponentTypes;
-import net.minecraft.component.type.NbtComponent;
 import net.minecraft.item.ItemStack;
 import net.minecraft.item.Items;
 import net.minecraft.nbt.NbtCompound;
@@ -24,19 +22,19 @@ import java.nio.file.Path;
 import java.util.List;
 
 public class CharacterUiHelper {
-    public static final Identifier CUSTOM_FONT = Identifier.of("nexuscharacters", "nexuscharacters");
-    public static final Identifier TRASH_ICON = Identifier.of("nexuscharacters", "textures/gui/trash.png");
-    public static final Identifier EDIT_ICON = Identifier.of("nexuscharacters", "textures/gui/edit.png");
-    public static final Identifier HEART_ICON = Identifier.of("nexuscharacters", "textures/gui/heart.png");
+    public static final Identifier CUSTOM_FONT = new Identifier("nexuscharacters", "nexuscharacters");
+    public static final Identifier TRASH_ICON = new Identifier("nexuscharacters", "textures/gui/trash.png");
+    public static final Identifier EDIT_ICON = new Identifier("nexuscharacters", "textures/gui/edit.png");
+    public static final Identifier HEART_ICON = new Identifier("nexuscharacters", "textures/gui/heart.png");
 
     public static boolean autoRotate = false;
     public static boolean showEquipment = true;
 
     public static final Identifier[] ARMOR_ICONS = {
-            Identifier.of("minecraft", "textures/item/empty_armor_slot_helmet.png"),
-            Identifier.of("minecraft", "textures/item/empty_armor_slot_chestplate.png"),
-            Identifier.of("minecraft", "textures/item/empty_armor_slot_leggings.png"),
-            Identifier.of("minecraft", "textures/item/empty_armor_slot_boots.png")
+            new Identifier("minecraft", "textures/item/empty_armor_slot_helmet.png"),
+            new Identifier("minecraft", "textures/item/empty_armor_slot_chestplate.png"),
+            new Identifier("minecraft", "textures/item/empty_armor_slot_leggings.png"),
+            new Identifier("minecraft", "textures/item/empty_armor_slot_boots.png")
     };
 
     public static float getScale(float targetW, float targetH, int width, int height) {
@@ -273,16 +271,7 @@ public class CharacterUiHelper {
             Identifier advId = Identifier.tryParse(latestId);
             if (advId == null) return null;
 
-            // 1. Try live advancement manager
-            if (client.getNetworkHandler() != null) {
-                var entry = client.getNetworkHandler().getAdvancementHandler().getManager().get(advId);
-                if (entry != null && entry.getAdvancementEntry().value().display().isPresent()) {
-                    var display = entry.getAdvancementEntry().value().display().get();
-                    return new AdvancementInfo(display.getTitle().getString(), display.getDescription().getString(), display.getIcon());
-                }
-            }
-
-            // 2. Search mod JARs directly.
+            // 1. Search mod JARs directly.
             // Advancement definitions live under data/<ns>/advancement[s]/<path>.json inside mod JARs.
             // The client ResourceManager only serves assets/, so we must read data/ entries ourselves.
             AdvancementInfo fromJar = readAdvancementFromJars(advId);
@@ -356,7 +345,7 @@ public class CharacterUiHelper {
                                     if (iconObj.has("nbt")) {
                                         try {
                                             NbtCompound nbt = net.minecraft.nbt.StringNbtReader.parse(iconObj.get("nbt").getAsString());
-                                            icon.set(DataComponentTypes.CUSTOM_DATA, NbtComponent.of(nbt));
+                                            icon.setNbt(nbt);
                                         } catch (Exception ignored) {}
                                     }
                                 }
@@ -389,7 +378,7 @@ public class CharacterUiHelper {
             if (obj.has("translate")) {
                 String key = obj.get("translate").getAsString();
                 try {
-                    Text text = Text.Serialization.fromJson(el.toString(), DummyWorldManager.getRegistries());
+                    Text text = Text.Serializer.fromJson(el.toString());
                     if (text != null) {
                         String result = text.getString();
                         // If the result is the raw key the translation is missing; try lang directly.
@@ -412,7 +401,7 @@ public class CharacterUiHelper {
 
         // Generic fallback through MC deserialiser
         try {
-            Text text = Text.Serialization.fromJson(el.toString(), DummyWorldManager.getRegistries());
+            Text text = Text.Serializer.fromJson(el.toString());
             return text != null ? text.getString() : null;
         } catch (Exception ignored) {
             return null;

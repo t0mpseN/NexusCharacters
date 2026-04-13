@@ -13,9 +13,10 @@ public class NexusCharactersClient implements ClientModInitializer {
 	public void onInitializeClient() {
 		NexusCharactersClientNetwork.register();
 
-		ClientPlayNetworking.registerGlobalReceiver(SkinReloadPayload.ID, (payload, context) -> {
-			context.client().execute(() -> {
-				net.minecraft.client.network.ClientPlayerEntity player = context.client().player;
+		ClientPlayNetworking.registerGlobalReceiver(SkinReloadPayload.ID, (client, handler, buf, responseSender) -> {
+			SkinReloadPayload payload = new SkinReloadPayload(buf);
+			client.execute(() -> {
+				net.minecraft.client.network.ClientPlayerEntity player = client.player;
 				if (player == null) return;
 
 				com.mojang.authlib.properties.Property prop =
@@ -25,12 +26,16 @@ public class NexusCharactersClient implements ClientModInitializer {
 				player.getGameProfile().getProperties().removeAll("textures");
 				player.getGameProfile().getProperties().put("textures", prop);
 
-				// Força o SkinProvider a rebuscar com o novo profile
-				context.client().getSkinProvider()
-						.fetchSkinTextures(player.getGameProfile())
-						.thenAccept(textures ->
-								NexusCharacters.LOGGER.info("[NexusCharacters] Skin atualizada: {}",
-										textures.texture()));
+				// Reload skin with new profile
+				client.getSkinProvider().loadSkin(
+						player.getGameProfile(),
+						(type, textureId, texture) -> {
+							if (type == com.mojang.authlib.minecraft.MinecraftProfileTexture.Type.SKIN) {
+								NexusCharacters.LOGGER.info("[NexusCharacters] Skin reloaded: {}", textureId);
+							}
+						},
+						true
+				);
 			});
 		});
 

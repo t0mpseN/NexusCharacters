@@ -88,10 +88,10 @@ public class CharacterSelectionScreen extends Screen {
         int boxH = ch - 52;
         int btnY = py + 36 + boxH - 24;
 
-        equipmentToggle = addDrawableChild(new ModelToggleButton(px + 20, btnY, Identifier.of("minecraft", "textures/item/iron_helmet.png"),
+        equipmentToggle = addDrawableChild(new ModelToggleButton(px + 20, btnY, new Identifier("minecraft", "textures/item/iron_helmet.png"),
                 () -> CharacterUiHelper.showEquipment, val -> CharacterUiHelper.showEquipment = val));
 
-        rotateToggle = addDrawableChild(new ModelToggleButton(px + 44, btnY, Identifier.of("minecraft", "textures/item/compass_00.png"),
+        rotateToggle = addDrawableChild(new ModelToggleButton(px + 44, btnY, new Identifier("minecraft", "textures/item/compass_00.png"),
                 () -> CharacterUiHelper.autoRotate, val -> CharacterUiHelper.autoRotate = val));
         
         equipmentToggle.visible = false;
@@ -99,13 +99,13 @@ public class CharacterSelectionScreen extends Screen {
     }
 
     @Override
-    public void renderBackground(DrawContext ctx, int mouseX, int mouseY, float delta) {
-        super.renderBackground(ctx, mouseX, mouseY, delta);
+    public void renderBackground(DrawContext ctx) {
+        super.renderBackground(ctx);
     }
 
     @Override
     public void render(DrawContext ctx, int mouseX, int mouseY, float delta) {
-        renderBackground(ctx, mouseX, mouseY, delta);
+        renderBackground(ctx);
 
         float scale = getScale();
         int smX = (int) (mouseX / scale);
@@ -261,8 +261,8 @@ public class CharacterSelectionScreen extends Screen {
     }
 
     @Override
-    public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
-        scrollAmount -= verticalAmount * (stride / 2.0);
+    public boolean mouseScrolled(double mouseX, double mouseY, double amount) {
+        scrollAmount -= amount * (stride / 2.0);
         return true;
     }
 
@@ -307,7 +307,7 @@ public class CharacterSelectionScreen extends Screen {
             float entityX = CharacterUiHelper.autoRotate ? targetX : (float)mouseX;
             float entityY = CharacterUiHelper.autoRotate ? targetY : (float)mouseY;
 
-            InventoryScreen.drawEntity(ctx, boxX + 6, boxY + 16, boxX + boxW - 6, boxY + boxH - 10, 60, 0.0625F, entityX, entityY, dummy);
+            InventoryScreen.drawEntity(ctx, boxX + boxW / 2, boxY + boxH - 10, 60, entityX, entityY, dummy);
         }
     }
 
@@ -330,12 +330,12 @@ public class CharacterSelectionScreen extends Screen {
             for (int i = 0; i < inventory.size(); i++) {
                 NbtCompound itemTag = inventory.getCompound(i);
                 int slot = itemTag.getByte("Slot") & 255;
-                if (slot < 104) invItems[slot] = ItemStack.fromNbtOrEmpty(DummyWorldManager.getRegistries(), itemTag);
+                if (slot < 104) invItems[slot] = ItemStack.fromNbt(itemTag);
             }
         }
 
         int hotbarY = py + 40;
-        ctx.drawTexture(Identifier.of("nexuscharacters", "textures/gui/pickaxe-placeholder.png"), startX - 18, hotbarY + 2, 0, 0, 16, 16, 16, 16);
+        ctx.drawTexture(new Identifier("nexuscharacters", "textures/gui/pickaxe-placeholder.png"), startX - 18, hotbarY + 2, 0, 0, 16, 16, 16, 16);
         for (int i = 0; i < 9; i++) {
             int sx = startX + i * (slotSize + gap);
             CharacterUiHelper.drawMinecraftRect(ctx, sx, hotbarY, slotSize, slotSize);

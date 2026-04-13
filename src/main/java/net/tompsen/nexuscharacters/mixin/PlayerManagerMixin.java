@@ -60,7 +60,7 @@ public class PlayerManagerMixin {
     }
 
     @Inject(method = "respawnPlayer", at = @At("RETURN"))
-    private void onRespawn(ServerPlayerEntity player, boolean alive, net.minecraft.entity.Entity.RemovalReason removalReason, CallbackInfoReturnable<ServerPlayerEntity> cir) {
+    private void onRespawn(ServerPlayerEntity player, boolean alive, CallbackInfoReturnable<ServerPlayerEntity> cir) {
         ServerPlayerEntity newPlayer = cir.getReturnValue();
         if (NexusCharacters.deadHardcorePlayers.remove(newPlayer.getUuid())) {
             // Hardcore character died - it's already removed from the list in AFTER_DEATH.
@@ -88,18 +88,12 @@ public class PlayerManagerMixin {
         boolean isHost = player.server.isHost(player.getGameProfile());
         boolean isLanGuest = !isDedicated && !isHost;
 
-        // LAN guests and dedicated server players go through the config-phase flow.
-        // installVaultAndCompleteTask already copied vault files to world dir before the player entered.
-        // Just mark the character as selected so trackers pick up the right files.
+        // In 1.20.1 there is no config phase. Dedicated/LAN-guest players join first, then
+        // select a character via play-phase packet. At tracker-creation time no character is
+        // selected yet for these players — skip silently and let the play-phase handler apply
+        // character data after the player has made their selection.
         if (isDedicated || isLanGuest) {
-            CharacterDto pending = NexusCharacters.pendingCharacters.get(player.getUuid());
-            if (pending != null) {
-                NexusCharacters.setSelectedCharacter(player, pending);
-                NexusCharacters.LOGGER.info("[Nexus] prepareCharacterData: pending character {} for {}.",
-                        pending.name(), player.getName().getString());
-            } else {
-                NexusCharacters.LOGGER.debug("[Nexus] prepareCharacterData: no pending character for {} — config-phase may still be in progress.", player.getName().getString());
-            }
+            NexusCharacters.LOGGER.debug("[Nexus] prepareCharacterData: dedicated/LAN-guest join for {} — character selection pending.", player.getName().getString());
             return;
         }
 

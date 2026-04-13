@@ -106,21 +106,15 @@ public class NexusCharacters implements ModInitializer {
 			ServerPlayerEntity player = handler.player;
 			LOGGER.info("[Nexus] JOIN event for {} (uuid={}) dedicated={}", player.getName().getString(), uuid, server.isDedicated());
 
-			if (server.isDedicated() || (!server.isHost(player.getGameProfile()))) {
-				// Dedicated server OR LAN non-host: character was selected during the configuration phase.
-				// Consume the pending selection and apply character data.
-				CharacterDto pending = pendingCharacters.remove(uuid);
-				if (pending != null) {
-					setSelectedCharacter(player, pending);
-					LOGGER.info("[Nexus] JOIN: applied config-phase character {} ({}) for {}.",
-							pending.name(), pending.id(), player.getName().getString());
-					// Apply character data (skin, position, stats) — vault is already in world dir.
-					server.execute(() -> CharacterDataManager.applyCharacterData(player));
-				} else {
-					LOGGER.warn("[Nexus] JOIN: no pending character for {} — mod may not be installed on client.", player.getName().getString());
-				}
+			boolean isLanGuest = !server.isDedicated() && !server.isHost(player.getGameProfile());
+			if (server.isDedicated() || isLanGuest) {
+				// Dedicated server OR LAN non-host: prompt client to select a character via
+				// play-phase packet (config-phase networking is not available in 1.20.1).
+				LOGGER.info("[Nexus] JOIN: sending CharacterSelectRequest to {} (dedicated={}, lanGuest={}).",
+						player.getName().getString(), server.isDedicated(), isLanGuest);
+				server.execute(() -> NexusCharactersNetwork.sendCharacterSelectRequest(player));
 			} else {
-				// Singleplayer / LAN host
+				// Singleplayer / LAN host — character was already chosen from the title screen.
 				LOGGER.info("[Nexus] JOIN: singleplayer/LAN host {}, selectedCharacter={}",
 						player.getName().getString(), NexusCharacters.selectedCharacter != null ? NexusCharacters.selectedCharacter.name() : "null");
 				if (NexusCharacters.selectedCharacter != null) {
@@ -185,8 +179,8 @@ public class NexusCharacters implements ModInitializer {
 					allFiles.putAll(VaultManager.collectModFiles(charToSave.id(), worldDir, disconnectUuid));
 					allFiles.putAll(VaultManager.collectAdvancementsFile(worldDir, disconnectUuid));
 					allFiles.put("playerdata/" + VaultManager.PLAYER_TOKEN + ".dat", playerNbtBytes);
-					
-					ServerPlayNetworking.send(player, new VaultSyncPayload(charToSave.id(), allFiles, false));
+
+					NexusCharactersNetwork.sendToClient(player, new VaultSyncPayload(charToSave.id(), allFiles, false));
 					LOGGER.info("[Nexus] DISCONNECT: sent final VaultSyncPayload ({} files) to {}.",
 							allFiles.size(), player.getName().getString());
 				} catch (Exception e) {
@@ -273,7 +267,7 @@ public class NexusCharacters implements ModInitializer {
 						
 						final java.util.Map<String, byte[]> snapshot = java.util.Collections.unmodifiableMap(files);
 						tickServer.execute(() ->
-								ServerPlayNetworking.send(player, new VaultSyncPayload(charId, snapshot, false)));
+								NexusCharactersNetwork.sendToClient(player, new VaultSyncPayload(charId, snapshot, false)));
 					} catch (Exception ignored) {}
 				}, "NexusChars-VaultSync").start();
 			}
@@ -290,7 +284,7 @@ public class NexusCharacters implements ModInitializer {
 					boolean isRemotePlayer = player.server.isDedicated()
 							|| !player.server.isHost(player.getGameProfile());
 					if (isRemotePlayer && ServerPlayNetworking.canSend(player, CharacterDeletedPayload.ID)) {
-						ServerPlayNetworking.send(player, new CharacterDeletedPayload(ch.id()));
+						NexusCharactersNetwork.sendToClient(player, new CharacterDeletedPayload(ch.id()));
 					}
 				}
 			}
@@ -367,7 +361,7 @@ public class NexusCharacters implements ModInitializer {
 												saveServer.getPlayerManager().getPlayer(playerUuid);
 										if (livePlayer == null) return;
 										if (ServerPlayNetworking.canSend(livePlayer, VaultSyncPayload.ID)) {
-											ServerPlayNetworking.send(livePlayer, new VaultSyncPayload(charId, snapshot, true));
+											NexusCharactersNetwork.sendToClient(livePlayer, new VaultSyncPayload(charId, snapshot, true));
 										}
 									});
 								} catch (Exception e) {
@@ -394,18 +388,5 @@ public class NexusCharacters implements ModInitializer {
 							}))));
 		});
 
-		// Vault Sync Ack Handler
-		net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking.registerGlobalReceiver(VaultSyncAckPayload.ID, (payload, ctx) -> {
-			ctx.server().execute(() -> {
-				net.minecraft.server.network.ServerPlayerEntity player = ctx.player();
-				CharacterDto character = getSelectedCharacter(player);
-				if (character != null && character.id().equals(payload.characterId())) {
-					if (net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking.canSend(player, SaveAckPayload.ID)) {
-						net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking.send(player, new SaveAckPayload());
-					}
-					player.sendMessage(net.minecraft.text.Text.literal("[Nexus] Character data saved successfully."), false);
-				}
-			});
-		});
 	}
 }

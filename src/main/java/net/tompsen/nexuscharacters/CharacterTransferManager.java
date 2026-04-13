@@ -50,11 +50,15 @@ public class CharacterTransferManager {
                     int from  = i * CHUNK_SIZE;
                     int to    = Math.min(from + CHUNK_SIZE, zipData.length);
                     byte[] chunk = Arrays.copyOfRange(zipData, from, to);
-                    ServerPlayNetworking.send(player, new VaultChunkS2CPayload(i, total, chunk));
+                    net.minecraft.network.PacketByteBuf chunkBuf = net.fabricmc.fabric.api.networking.v1.PacketByteBufs.create();
+                    new VaultChunkS2CPayload(i, total, chunk).write(chunkBuf);
+                    ServerPlayNetworking.send(player, VaultChunkS2CPayload.ID, chunkBuf);
                     Thread.sleep(30);
                 }
 
-                ServerPlayNetworking.send(player, new VaultTransferDoneS2CPayload(characterId));
+                net.minecraft.network.PacketByteBuf doneBuf = net.fabricmc.fabric.api.networking.v1.PacketByteBufs.create();
+                new VaultTransferDoneS2CPayload(characterId).write(doneBuf);
+                ServerPlayNetworking.send(player, VaultTransferDoneS2CPayload.ID, doneBuf);
             } catch (Exception e) {
                 NexusCharacters.LOGGER.error("[Transfer] Download to client failed:", e);
             }

@@ -3,10 +3,10 @@ package net.tompsen.nexuscharacters;
 import net.minecraft.network.PacketByteBuf;
 import net.minecraft.util.Identifier;
 
-public record ModPresentPayload() {
-    public static final Identifier ID = new Identifier("nexuscharacters", "mod_present");
+public record SaveAckPayload() {
+    public static final Identifier ID = new Identifier(NexusCharacters.MOD_ID, "save_ack");
 
-    public ModPresentPayload(PacketByteBuf buf) {
+    public SaveAckPayload(PacketByteBuf buf) {
         this();
     }
 

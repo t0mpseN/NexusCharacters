@@ -2,7 +2,6 @@ package net.tompsen.nexuscharacters;
 
 import net.minecraft.client.font.TextRenderer;
 import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.util.SkinTextures;
 import net.minecraft.text.Text;
 import net.minecraft.util.Formatting;
 import net.minecraft.util.Identifier;
@@ -22,8 +21,7 @@ public class CharacterCardRenderer {
         ctx.fill(faceX - 1, faceY - 1, faceX + faceSize + 1, faceY + faceSize + 1, highlight ? 0xFFFFFFFF : 0xFF8B8B8B); // Border
         ctx.fill(faceX, faceY, faceX + faceSize, faceY + faceSize, 0xFF222222); // Inner bg
 
-        SkinTextures skinTextures = DummyPlayerManager.getSkinTextures(c);
-        Identifier skin = skinTextures.texture();
+        Identifier skin = DummyPlayerManager.getSkinIdentifier(c);
         ctx.drawTexture(skin, faceX, faceY, faceSize, faceSize, 8, 8, 8, 8, 64, 64);
         ctx.drawTexture(skin, faceX, faceY, faceSize, faceSize, 40, 8, 8, 8, 64, 64);
 

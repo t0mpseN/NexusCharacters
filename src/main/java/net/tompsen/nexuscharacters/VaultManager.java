@@ -4,7 +4,6 @@ import com.google.gson.*;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.nbt.NbtCompound;
 import net.minecraft.nbt.NbtIo;
-import net.minecraft.nbt.NbtSizeTracker;
 
 import java.io.*;
 import java.nio.file.*;
@@ -483,7 +482,7 @@ public class VaultManager {
         return NBT_CACHE.computeIfAbsent(characterId, id -> {
             Path file = getVaultDir(id).resolve("playerdata/__player__.dat");
             if (!Files.exists(file)) return new NbtCompound();
-            try { return NbtIo.readCompressed(file, NbtSizeTracker.ofUnlimitedBytes()); }
+            try { return NbtIo.readCompressed(file.toFile()); }
             catch (IOException e) { return new NbtCompound(); }
         });
     }

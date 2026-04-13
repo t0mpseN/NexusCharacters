@@ -43,7 +43,7 @@ public class DataFileManager {
 
     public List<CharacterDto> read() {
         try {
-            NbtCompound root = NbtIo.readCompressed(DATA_FILE_PATH, NbtSizeTracker.ofUnlimitedBytes());
+            NbtCompound root = NbtIo.readCompressed(DATA_FILE_PATH.toFile());
             NbtList list = root.getList("characters", NbtElement.COMPOUND_TYPE);
             return list.stream().map(tag -> {
                 NbtCompound nbt = (NbtCompound) tag;
@@ -71,7 +71,7 @@ public class DataFileManager {
             NbtList list = new NbtList();
             characterList.stream().map(CharacterDto::toNbt).forEach(list::add);
             root.put("characters", list);
-            NbtIo.writeCompressed(root, DATA_FILE_PATH);
+            NbtIo.writeCompressed(root, DATA_FILE_PATH.toFile());
         } catch (IOException e) {
             e.printStackTrace();
         }
@@ -101,17 +101,17 @@ public class DataFileManager {
     public void saveLastUsed(UUID playerUuid, UUID characterId) {
         try {
             NbtCompound root = Files.exists(INDEX_FILE_PATH)
-                    ? NbtIo.readCompressed(INDEX_FILE_PATH, NbtSizeTracker.ofUnlimitedBytes())
+                    ? NbtIo.readCompressed(INDEX_FILE_PATH.toFile())
                     : new NbtCompound();
             root.putUuid(playerUuid.toString(), characterId);
-            NbtIo.writeCompressed(root, INDEX_FILE_PATH);
+            NbtIo.writeCompressed(root, INDEX_FILE_PATH.toFile());
         } catch (IOException e) { e.printStackTrace(); }
     }
 
     public UUID getLastUsed(UUID playerUuid) {
         try {
             if (!Files.exists(INDEX_FILE_PATH)) return null;
-            NbtCompound root = NbtIo.readCompressed(INDEX_FILE_PATH, NbtSizeTracker.ofUnlimitedBytes());
+            NbtCompound root = NbtIo.readCompressed(INDEX_FILE_PATH.toFile());
             String key = playerUuid.toString();
             return root.contains(key) ? root.getUuid(key) : null;
         } catch (IOException e) { return null; }

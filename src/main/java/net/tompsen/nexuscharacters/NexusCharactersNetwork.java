@@ -1,56 +1,23 @@
 package net.tompsen.nexuscharacters;
 
-import net.fabricmc.fabric.api.networking.v1.*;
-import net.minecraft.network.codec.PacketCodec;
-import net.minecraft.network.packet.Packet;
-import net.minecraft.server.network.ServerConfigurationNetworkHandler;
-import net.minecraft.server.network.ServerPlayerConfigurationTask;
+import net.fabricmc.fabric.api.networking.v1.PacketByteBufs;
+import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
+import net.minecraft.network.PacketByteBuf;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.util.WorldSavePath;
 
 import java.nio.file.Path;
 import java.util.UUID;
-import java.util.function.Consumer;
 
 public class NexusCharactersNetwork {
-
-    // ── Configuration-phase task ──────────────────────────────────────────────
-
-    /**
-     * Blocks the player in the configuration phase until character selection and
-     * vault upload are complete.  The server calls completeTask(KEY) once the
-     * vault has been installed into the world dir.
-     */
-    static final class CharacterSelectionTask implements ServerPlayerConfigurationTask {
-        static final Key KEY = new Key("nexuscharacters:character_selection");
-
-        private final ServerConfigurationNetworkHandler handler;
-
-        CharacterSelectionTask(ServerConfigurationNetworkHandler handler) {
-            this.handler = handler;
-        }
-
-        @Override
-        public void sendPacket(Consumer<Packet<?>> sender) {
-            // Send the "please pick a character" prompt to the client.
-            NexusCharacters.LOGGER.info("[Nexus] CharacterSelectionTask started — sending request to client.");
-            ServerConfigurationNetworking.send(handler, new CharacterSelectRequestPayload());
-        }
-
-        @Override
-        public Key getKey() {
-            return KEY;
-        }
-    }
 
     // ── Respawn helper (play phase, after character switch mid-session) ────────
 
     /**
      * Respawns the player in-place so Minecraft (and all mods) re-read player data
      * from the world dir files we just placed there.
-     * Uses respawnPlayer with alive=true to stay in the same world.
      */
-    private static void respawnPlayer(ServerPlayerEntity player) {
+    static void respawnPlayer(ServerPlayerEntity player) {
         CharacterDto character = NexusCharacters.getSelectedCharacter(player);
         if (character == null) {
             NexusCharacters.LOGGER.warn("[Nexus] respawnPlayer: no character selected for {} — falling back to applyCharacterData", player.getName().getString());
@@ -64,8 +31,7 @@ public class NexusCharactersNetwork {
         NexusCharacters.respawningPlayers.add(player.getUuid());
         ServerPlayerEntity newPlayer;
         try {
-            newPlayer = player.server.getPlayerManager()
-                    .respawnPlayer(player, true, net.minecraft.entity.Entity.RemovalReason.KILLED);
+            newPlayer = player.server.getPlayerManager().respawnPlayer(player, true);
         } finally {
             NexusCharacters.respawningPlayers.remove(player.getUuid());
         }
@@ -85,17 +51,15 @@ public class NexusCharactersNetwork {
                     character.name(), pos.get().x(), pos.get().y(), pos.get().z(), worldId);
             CharacterDataManager.teleportTo(newPlayer, pos.get());
         } else {
-            // Fallback: try same host/save but any dimension
             String hostSave = worldId.substring(0, worldId.lastIndexOf('|'));
             java.util.Optional<VaultManager.WorldPos> fallback = VaultManager.getAnyPositionForWorld(character.id(), hostSave);
             if (fallback.isPresent()) {
-                NexusCharacters.LOGGER.info("[Nexus] Teleporting {} to fallback pos [{}, {}, {}] in world {}",
-                        character.name(), fallback.get().x(), fallback.get().y(), fallback.get().z(), hostSave);
+                NexusCharacters.LOGGER.info("[Nexus] Teleporting {} to fallback pos [{}, {}, {}]",
+                        character.name(), fallback.get().x(), fallback.get().y(), fallback.get().z());
                 CharacterDataManager.teleportTo(newPlayer, fallback.get());
             } else {
                 net.minecraft.util.math.BlockPos spawn = newPlayer.getServerWorld().getSpawnPos();
-                NexusCharacters.LOGGER.info("[Nexus] No saved position for {} in world {} — teleporting to spawn {}",
-                        character.name(), worldId, spawn);
+                NexusCharacters.LOGGER.info("[Nexus] No saved position for {} — teleporting to spawn {}", character.name(), spawn);
                 newPlayer.teleport(newPlayer.getServerWorld(), spawn.getX(), spawn.getY() + 1, spawn.getZ(),
                         java.util.Set.of(), 0f, 0f);
             }
@@ -105,204 +69,152 @@ public class NexusCharactersNetwork {
         NexusCharacters.LOGGER.info("[Nexus] Respawn complete for {} (char {}).", character.name(), character.id());
     }
 
-    // ── Install vault into world dir and complete configuration task ──────────
+    // ── Install vault into world dir ──────────────────────────────────────────
 
     /**
-     * Called on the server thread once a vault zip is assembled during the
-     * configuration phase.  Installs files into the world dir then releases
-     * the configuration task so the player can enter the world.
+     * Called on the server thread once a vault zip is assembled during play phase.
+     * Installs files into the world dir then respawns the player.
      */
-    private static void installVaultAndCompleteTask(
-            ServerConfigurationNetworkHandler handler,
-            UUID playerUuid,
-            CharacterDto dto,
-            byte[] zip) {
-
-        net.minecraft.server.MinecraftServer server = ServerConfigurationNetworking.getServer(handler);
-        Path worldDir = server.getSavePath(WorldSavePath.ROOT).toAbsolutePath().normalize();
+    private static void installVaultAndRespawn(ServerPlayerEntity player, CharacterDto dto, byte[] zip) {
+        Path worldDir = player.server.getSavePath(WorldSavePath.ROOT).toAbsolutePath().normalize();
+        UUID playerUuid = player.getUuid();
 
         try {
-            VaultManager.unzipToVault(dto.id(), zip, true); // preserveServerFiles=true keeps world_positions.json
-            // Import pre-existing player data for a matching username if this is a fresh vault
+            VaultManager.unzipToVault(dto.id(), zip, true);
             VaultManager.importLegacyDataIfNeeded(dto.id(), dto.name(), worldDir);
             VaultManager.clearWorldFiles(worldDir, playerUuid);
             VaultManager.copyVaultToWorld(dto.id(), worldDir, playerUuid);
-            NexusCharacters.LOGGER.info("[Server] Config-phase vault installed for player {} char {}.", playerUuid, dto.id());
+            NexusCharacters.LOGGER.info("[Server] Play-phase vault installed for player {} char {}.", playerUuid, dto.id());
         } catch (Exception e) {
-            NexusCharacters.LOGGER.error("[Server] Failed to install vault during config phase:", e);
-            // Even on failure, complete the task so the player isn't stuck forever.
+            NexusCharacters.LOGGER.error("[Server] Failed to install vault during play phase:", e);
+            return;
         }
 
-        handler.completeTask(CharacterSelectionTask.KEY);
+        respawnPlayer(player);
+    }
+
+    // ── Helper: send a payload S2C ────────────────────────────────────────────
+
+    static void sendToClient(ServerPlayerEntity player, VaultReceiveReadyPayload payload) {
+        PacketByteBuf buf = PacketByteBufs.create();
+        payload.write(buf);
+        ServerPlayNetworking.send(player, VaultReceiveReadyPayload.ID, buf);
+    }
+
+    static void sendToClient(ServerPlayerEntity player, VaultChunkS2CPayload payload) {
+        PacketByteBuf buf = PacketByteBufs.create();
+        payload.write(buf);
+        ServerPlayNetworking.send(player, VaultChunkS2CPayload.ID, buf);
+    }
+
+    static void sendToClient(ServerPlayerEntity player, VaultTransferDoneS2CPayload payload) {
+        PacketByteBuf buf = PacketByteBufs.create();
+        payload.write(buf);
+        ServerPlayNetworking.send(player, VaultTransferDoneS2CPayload.ID, buf);
+    }
+
+    static void sendToClient(ServerPlayerEntity player, VaultSyncPayload payload) {
+        PacketByteBuf buf = PacketByteBufs.create();
+        payload.write(buf);
+        ServerPlayNetworking.send(player, VaultSyncPayload.ID, buf);
+    }
+
+    static void sendToClient(ServerPlayerEntity player, CharacterDeletedPayload payload) {
+        PacketByteBuf buf = PacketByteBufs.create();
+        payload.write(buf);
+        ServerPlayNetworking.send(player, CharacterDeletedPayload.ID, buf);
+    }
+
+    static void sendToClient(ServerPlayerEntity player, SkinReloadPayload payload) {
+        PacketByteBuf buf = PacketByteBufs.create();
+        payload.write(buf);
+        ServerPlayNetworking.send(player, SkinReloadPayload.ID, buf);
+    }
+
+    static void sendToClient(ServerPlayerEntity player, SaveAckPayload payload) {
+        PacketByteBuf buf = PacketByteBufs.create();
+        payload.write(buf);
+        ServerPlayNetworking.send(player, SaveAckPayload.ID, buf);
+    }
+
+    static void sendCharacterSelectRequest(ServerPlayerEntity player) {
+        PacketByteBuf buf = PacketByteBufs.create();
+        new CharacterSelectRequestPayload().write(buf);
+        ServerPlayNetworking.send(player, CharacterSelectRequestPayload.ID, buf);
     }
 
     // ── Registration ──────────────────────────────────────────────────────────
 
     public static void register() {
-        // ── Payload registration ───────────────────────────────────────────────
-        // Config-phase C2S (client → server during configuration)
-        PayloadTypeRegistry.configurationC2S().register(SelectCharacterPayload.ID,   SelectCharacterPayload.CODEC);
-        PayloadTypeRegistry.configurationC2S().register(VaultChunkC2SPayload.ID,     VaultChunkC2SPayload.CODEC);
-        PayloadTypeRegistry.configurationC2S().register(VaultTransferDoneC2SPayload.ID, VaultTransferDoneC2SPayload.CODEC);
 
-        // Config-phase S2C (server → client during configuration)
-        PayloadTypeRegistry.configurationS2C().register(CharacterSelectRequestPayload.ID, CharacterSelectRequestPayload.CODEC);
-        PayloadTypeRegistry.configurationS2C().register(VaultReceiveReadyPayload.ID,      VaultReceiveReadyPayload.CODEC);
+        // 1. Client chose a character → apply data or request vault upload
+        ServerPlayNetworking.registerGlobalReceiver(SelectCharacterPayload.ID,
+                (server, player, handler, buf, responseSender) -> {
+                    SelectCharacterPayload payload = new SelectCharacterPayload(buf);
+                    server.execute(() -> {
+                        CharacterDto dto = payload.character();
+                        NexusCharacters.setSelectedCharacter(player, dto);
+                        NexusCharacters.LOGGER.info("[Server] Play SelectCharacter: char={} ({}) for player={}",
+                                dto.name(), dto.id(), player.getName().getString());
 
-        // Play-phase C2S (kept for singleplayer/LAN; dedicated uses config phase above)
-        PayloadTypeRegistry.playC2S().register(SelectCharacterPayload.ID,   SelectCharacterPayload.CODEC);
-        PayloadTypeRegistry.playC2S().register(VaultChunkC2SPayload.ID,     VaultChunkC2SPayload.CODEC);
-        PayloadTypeRegistry.playC2S().register(VaultTransferDoneC2SPayload.ID, VaultTransferDoneC2SPayload.CODEC);
-        PayloadTypeRegistry.playC2S().register(VaultSyncAckPayload.ID,      VaultSyncAckPayload.CODEC);
+                        boolean isSPorLANHost = !server.isDedicated() && server.isHost(player.getGameProfile());
+                        if (isSPorLANHost) {
+                            // Singleplayer / LAN host: vault already copied to world dir by the mixin.
+                            CharacterDataManager.applyCharacterData(player);
+                        } else {
+                            // Dedicated / LAN guest: request vault upload from client.
+                            NexusCharacters.LOGGER.info("[Server] Requesting vault upload from {}.", player.getName().getString());
+                            sendToClient(player, new VaultReceiveReadyPayload());
+                        }
+                    });
+                });
 
-        // Play-phase S2C
-        PayloadTypeRegistry.playS2C().register(ModPresentPayload.ID,              PacketCodec.unit(new ModPresentPayload()));
-        PayloadTypeRegistry.playS2C().register(SkinReloadPayload.ID,              SkinReloadPayload.CODEC);
-        PayloadTypeRegistry.playS2C().register(VaultReceiveReadyPayload.ID,       VaultReceiveReadyPayload.CODEC);
-        PayloadTypeRegistry.playS2C().register(VaultChunkS2CPayload.ID,           VaultChunkS2CPayload.CODEC);
-        PayloadTypeRegistry.playS2C().register(VaultTransferDoneS2CPayload.ID,    VaultTransferDoneS2CPayload.CODEC);
-        PayloadTypeRegistry.playS2C().register(VaultSyncPayload.ID,               VaultSyncPayload.CODEC);
-        PayloadTypeRegistry.playS2C().register(CharacterDeletedPayload.ID,        CharacterDeletedPayload.CODEC);
-        PayloadTypeRegistry.playS2C().register(SaveAckPayload.ID,                 SaveAckPayload.CODEC);
+        // 2. Receive one vault chunk from client
+        ServerPlayNetworking.registerGlobalReceiver(VaultChunkC2SPayload.ID,
+                (server, player, handler, buf, responseSender) -> {
+                    VaultChunkC2SPayload payload = new VaultChunkC2SPayload(buf);
+                    UUID playerUuid = player.getUuid();
+                    CharacterTransferManager.serverReceiveChunk(playerUuid, payload.index(), payload.total(), payload.data());
+                    if (payload.index() == 0 || payload.index() == payload.total() - 1) {
+                        NexusCharacters.LOGGER.info("[Server] Vault chunk {}/{} received from {}.",
+                                payload.index() + 1, payload.total(), player.getName().getString());
+                    }
+                });
 
-        // ── Configuration-phase server event ──────────────────────────────────
-        // On dedicated servers AND LAN non-host clients: add a task that blocks the
-        // player from entering the world until character selection + vault upload are done.
-        ServerConfigurationConnectionEvents.CONFIGURE.register((handler, server) -> {
-            // Always apply to dedicated servers
-            boolean isDedicated = server.isDedicated();
-            // For integrated (LAN) server: apply to non-host players only
-            if (!isDedicated) {
-                com.mojang.authlib.GameProfile profile =
-                        ((net.tompsen.nexuscharacters.mixin.ServerConfigurationHandlerAccessor) handler).getProfile();
-                if (profile == null || server.isHost(profile)) return;
-            }
+        // 3. Client signals upload complete → assemble, write to world, respawn player
+        ServerPlayNetworking.registerGlobalReceiver(VaultTransferDoneC2SPayload.ID,
+                (server, player, handler, buf, responseSender) -> {
+                    VaultTransferDoneC2SPayload payload = new VaultTransferDoneC2SPayload(buf);
+                    server.execute(() -> {
+                        UUID playerUuid = player.getUuid();
+                        NexusCharacters.LOGGER.info("[Server] VaultTransferDone received from {}.", player.getName().getString());
 
-            if (ServerConfigurationNetworking.canSend(handler, CharacterSelectRequestPayload.ID)) {
-                NexusCharacters.LOGGER.info("[Nexus] Adding CharacterSelectionTask for connecting player (dedicated={}).", isDedicated);
-                handler.addTask(new CharacterSelectionTask(handler));
-            } else {
-                NexusCharacters.LOGGER.warn("[Nexus] Client does not support CharacterSelectRequest — skipping config-phase selection.");
-            }
-        });
+                        byte[] zip = CharacterTransferManager.serverAssemble(playerUuid);
+                        NexusCharacters.LOGGER.info("[Server] Assembled {} bytes for player {}.", zip.length, player.getName().getString());
 
-        // ── Configuration-phase C2S handlers ──────────────────────────────────
+                        CharacterDto dto = NexusCharacters.getSelectedCharacter(player);
+                        if (dto == null) {
+                            NexusCharacters.LOGGER.error("[Server] No selected character for {} — cannot install vault.", player.getName().getString());
+                            return;
+                        }
 
-        // 1a. (Config phase) Client chose a character → always request client upload.
-        // The client's vault is always the source of truth for character data.
-        // Server progress is synced back to the client every second via VaultSyncPayload,
-        // so the client vault is always up to date and safe to trust on join.
-        ServerConfigurationNetworking.registerGlobalReceiver(SelectCharacterPayload.ID, (payload, ctx) -> {
-            ServerConfigurationNetworkHandler handler = ctx.networkHandler();
-            CharacterDto dto = payload.character();
+                        installVaultAndRespawn(player, dto, zip);
+                    });
+                });
 
-            UUID playerUuid = ((net.tompsen.nexuscharacters.mixin.ServerConfigurationHandlerAccessor) handler).getProfile().getId();
-            NexusCharacters.LOGGER.info("[Server] Config SelectCharacter: char={} ({}) for uuid={}",
-                    dto.name(), dto.id(), playerUuid);
-
-            // Store selection so that when the player entity is created it's already known
-            NexusCharacters.pendingCharacters.put(playerUuid, dto);
-
-            // Always request upload — client vault has the freshest data
-            NexusCharacters.LOGGER.info("[Server] Config: requesting vault upload from client for char {}.", dto.id());
-            ServerConfigurationNetworking.send(handler, new VaultReceiveReadyPayload());
-            // Task completed after VaultTransferDoneC2SPayload arrives.
-        });
-
-        // 1b. (Config phase) Receive one vault chunk from client
-        ServerConfigurationNetworking.registerGlobalReceiver(VaultChunkC2SPayload.ID, (payload, ctx) -> {
-            UUID playerUuid = ((net.tompsen.nexuscharacters.mixin.ServerConfigurationHandlerAccessor) ctx.networkHandler()).getProfile().getId();
-            CharacterTransferManager.serverReceiveChunk(playerUuid, payload.index(), payload.total(), payload.data());
-            if (payload.index() == 0 || payload.index() == payload.total() - 1) {
-                NexusCharacters.LOGGER.info("[Server] Config vault chunk {}/{} received from uuid={}.",
-                        payload.index() + 1, payload.total(), playerUuid);
-            }
-        });
-
-        // 1c. (Config phase) Client signals upload complete → install vault, complete task
-        ServerConfigurationNetworking.registerGlobalReceiver(VaultTransferDoneC2SPayload.ID, (payload, ctx) -> {
-            ServerConfigurationNetworkHandler handler = ctx.networkHandler();
-            net.minecraft.server.MinecraftServer server = ctx.server();
-            UUID playerUuid = ((net.tompsen.nexuscharacters.mixin.ServerConfigurationHandlerAccessor) handler).getProfile().getId();
-            NexusCharacters.LOGGER.info("[Server] Config VaultTransferDone from uuid={}.", playerUuid);
-
-            byte[] zip = CharacterTransferManager.serverAssemble(playerUuid);
-            NexusCharacters.LOGGER.info("[Server] Config: assembled {} bytes for uuid={}.", zip.length, playerUuid);
-
-            CharacterDto dto = NexusCharacters.pendingCharacters.get(playerUuid);
-            if (dto == null) {
-                NexusCharacters.LOGGER.error("[Server] Config: no pending character for uuid={} — cannot install vault.", playerUuid);
-                handler.completeTask(CharacterSelectionTask.KEY);
-                return;
-            }
-
-            server.execute(() -> installVaultAndCompleteTask(handler, playerUuid, dto, zip));
-        });
-
-        // ── Play-phase handlers (singleplayer / LAN only) ─────────────────────
-
-        // 2. (Play phase, SP/LAN) Client chose a character → apply data
-        ServerPlayNetworking.registerGlobalReceiver(SelectCharacterPayload.ID, (payload, ctx) -> {
-            ctx.server().execute(() -> {
-                ServerPlayerEntity player = ctx.player();
-                CharacterDto dto = payload.character();
-                NexusCharacters.setSelectedCharacter(player, dto);
-                NexusCharacters.LOGGER.info("[Server] Play SelectCharacter: char={} ({}) for player={} (singleplayer/LAN)",
-                        dto.name(), dto.id(), player.getName().getString());
-
-                if (!ctx.server().isDedicated() && !ctx.server().isHost(player.getGameProfile())) {
-                    // LAN guest: request vault upload from client (just like dedicated does in config phase)
-                    NexusCharacters.LOGGER.info("[Server] Play: requesting vault upload from LAN guest {}.", player.getName().getString());
-                    ServerPlayNetworking.send(player, new VaultReceiveReadyPayload());
-                } else {
-                    // Singleplayer / LAN host: vault was already copied to world dir by the mixin.
-                    CharacterDataManager.applyCharacterData(player);
-                }
-            });
-        });
-
-        // 3. (Play phase) Receive one vault chunk from client
-        ServerPlayNetworking.registerGlobalReceiver(VaultChunkC2SPayload.ID, (payload, ctx) -> {
-            UUID chunkPlayerUuid = ctx.player().getUuid();
-            CharacterTransferManager.serverReceiveChunk(chunkPlayerUuid, payload.index(), payload.total(), payload.data());
-            if (payload.index() == 0 || payload.index() == payload.total() - 1) {
-                NexusCharacters.LOGGER.info("[Server] Play vault chunk {}/{} received from {}.",
-                        payload.index() + 1, payload.total(), ctx.player().getName().getString());
-            }
-        });
-
-        // 4. (Play phase) Client signals upload complete → assemble, write to world, respawn player
-        ServerPlayNetworking.registerGlobalReceiver(VaultTransferDoneC2SPayload.ID, (payload, ctx) -> {
-            ctx.server().execute(() -> {
-                ServerPlayerEntity player = ctx.player();
-                UUID playerUuid = player.getUuid();
-                NexusCharacters.LOGGER.info("[Server] Play VaultTransferDone received from {}.", player.getName().getString());
-
-                byte[] zip = CharacterTransferManager.serverAssemble(playerUuid);
-                NexusCharacters.LOGGER.info("[Server] Play: assembled {} bytes for player {}.", zip.length, player.getName().getString());
-
-                CharacterDto dto = NexusCharacters.getSelectedCharacter(player);
-                if (dto == null) {
-                    NexusCharacters.LOGGER.error("[Server] Play: no selected character for {} — cannot install vault.", player.getName().getString());
-                    return;
-                }
-
-                NexusCharacters.LOGGER.info("[Server] Play: installing vault for char {} ({}).", dto.name(), dto.id());
-                Path worldDir = player.server.getSavePath(WorldSavePath.ROOT).toAbsolutePath().normalize();
-
-                try {
-                    VaultManager.unzipToVault(dto.id(), zip, true); // preserveServerFiles=true keeps world_positions.json
-                    VaultManager.importLegacyDataIfNeeded(dto.id(), dto.name(), worldDir);
-                    VaultManager.clearWorldFiles(worldDir, playerUuid);
-                    VaultManager.copyVaultToWorld(dto.id(), worldDir, playerUuid);
-                    NexusCharacters.LOGGER.info("[Server] Play: vault installed for {} (char {}).", player.getName().getString(), dto.id());
-                } catch (Exception e) {
-                    NexusCharacters.LOGGER.error("[Server] Play: failed to install vault for {}:", player.getName().getString(), e);
-                    return;
-                }
-
-                respawnPlayer(player);
-            });
-        });
+        // 4. Vault sync ack — player confirmed manual save received
+        ServerPlayNetworking.registerGlobalReceiver(VaultSyncAckPayload.ID,
+                (server, player, handler, buf, responseSender) -> {
+                    VaultSyncAckPayload payload = new VaultSyncAckPayload(buf);
+                    server.execute(() -> {
+                        CharacterDto character = NexusCharacters.getSelectedCharacter(player);
+                        if (character != null && character.id().equals(payload.characterId())) {
+                            if (ServerPlayNetworking.canSend(player, SaveAckPayload.ID)) {
+                                sendToClient(player, new SaveAckPayload());
+                            }
+                            player.sendMessage(net.minecraft.text.Text.literal("[Nexus] Character data saved successfully."), false);
+                        }
+                    });
+                });
     }
 }

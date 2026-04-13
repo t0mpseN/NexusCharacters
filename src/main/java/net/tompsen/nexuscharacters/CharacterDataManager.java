@@ -136,8 +136,7 @@ public class CharacterDataManager {
         Path playerFile = worldDir.resolve("playerdata/" + player.getUuid() + ".dat");
         if (java.nio.file.Files.exists(playerFile)) {
             try {
-                return net.minecraft.nbt.NbtIo.readCompressed(playerFile,
-                        net.minecraft.nbt.NbtSizeTracker.ofUnlimitedBytes());
+                return net.minecraft.nbt.NbtIo.readCompressed(playerFile.toFile());
             } catch (Exception e) {
                 NexusCharacters.LOGGER.warn("[Nexus] Could not read player NBT from world: {}", e.getMessage());
             }
@@ -169,7 +168,9 @@ public class CharacterDataManager {
             player.getGameProfile().getProperties().put("textures", new Property("textures", value, sig));
             broadcastSkinUpdate(player);
             if (ServerPlayNetworking.canSend(player.networkHandler, SkinReloadPayload.ID)) {
-                ServerPlayNetworking.send(player, new SkinReloadPayload(value, sig != null ? sig : ""));
+                net.minecraft.network.PacketByteBuf skinBuf = net.fabricmc.fabric.api.networking.v1.PacketByteBufs.create();
+                new SkinReloadPayload(value, sig != null ? sig : "").write(skinBuf);
+                ServerPlayNetworking.send(player, SkinReloadPayload.ID, skinBuf);
             }
         }
     }

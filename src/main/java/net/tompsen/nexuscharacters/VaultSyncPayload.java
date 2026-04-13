@@ -1,8 +1,6 @@
 package net.tompsen.nexuscharacters;
 
 import net.minecraft.network.PacketByteBuf;
-import net.minecraft.network.codec.PacketCodec;
-import net.minecraft.network.packet.CustomPayload;
 import net.minecraft.util.Identifier;
 
 import java.util.HashMap;
@@ -14,12 +12,9 @@ import java.util.UUID;
  * Carries a map of vault-relative paths → file bytes for one character.
  * Sent every second during play so the client always has a fresh local copy.
  */
-public record VaultSyncPayload(UUID characterId, Map<String, byte[]> files, boolean isManual) implements CustomPayload {
+public record VaultSyncPayload(UUID characterId, Map<String, byte[]> files, boolean isManual) {
 
-    public static final Id<VaultSyncPayload> ID =
-            new Id<>(Identifier.of(NexusCharacters.MOD_ID, "vault_sync"));
-    public static final PacketCodec<PacketByteBuf, VaultSyncPayload> CODEC =
-            PacketCodec.of(VaultSyncPayload::write, VaultSyncPayload::new);
+    public static final Identifier ID = new Identifier(NexusCharacters.MOD_ID, "vault_sync");
 
     public VaultSyncPayload(PacketByteBuf buf) {
         this(buf.readUuid(), readFiles(buf), buf.readBoolean());
@@ -45,7 +40,4 @@ public record VaultSyncPayload(UUID characterId, Map<String, byte[]> files, bool
         }
         buf.writeBoolean(isManual);
     }
-
-    @Override
-    public Id<? extends CustomPayload> getId() { return ID; }
 }
