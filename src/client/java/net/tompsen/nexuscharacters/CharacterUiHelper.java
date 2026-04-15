@@ -12,7 +12,9 @@ import net.minecraft.nbt.NbtCompound;
 import net.minecraft.text.Text;
 import net.minecraft.util.Identifier;
 
+import com.mojang.blaze3d.systems.RenderSystem;
 import net.fabricmc.loader.api.FabricLoader;
+import net.tompsen.nexuscharacters.NexusCharacters;
 import net.minecraft.item.Item;
 import net.minecraft.registry.Registries;
 
@@ -44,9 +46,11 @@ public class CharacterUiHelper {
     }
 
     public static void drawRetroText(DrawContext ctx, TextRenderer tr, Text text, int x, int y, int color) {
-        Text shadowText = Text.literal(text.getString()).setStyle(net.minecraft.text.Style.EMPTY.withFont(CUSTOM_FONT));
-        ctx.drawText(tr, shadowText, x + 1, y + 1, 0xFF000000, false);
-        ctx.drawText(tr, text, x, y, color, false);
+        // Force our custom font regardless of what style the text already has
+        Text forced = Text.literal(text.getString()).setStyle(net.minecraft.text.Style.EMPTY.withFont(CUSTOM_FONT));
+        Text shadow = Text.literal(text.getString()).setStyle(net.minecraft.text.Style.EMPTY.withFont(CUSTOM_FONT));
+        ctx.drawText(tr, shadow, x + 1, y + 1, 0xFF000000, false);
+        ctx.drawText(tr, forced, x, y, color, false);
     }
 
     public static void drawScaledTitle(DrawContext ctx, TextRenderer tr, String text, int centerX, int y, float scale, int color) {
@@ -111,12 +115,29 @@ public class CharacterUiHelper {
      */
     public static void drawSafeItem(DrawContext ctx, net.minecraft.item.ItemStack stack, int x, int y) {
         if (stack.isEmpty()) return;
-        try { ctx.drawItem(stack, x, y); } catch (Exception ignored) {}
+        ctx.getMatrices().push();
+        try {
+            ctx.drawItem(stack, x, y);
+        } catch (Throwable t) {
+            NexusCharacters.LOGGER.warn("[Nexus] drawItem failed for {}: {}", stack.getItem(), t.toString());
+        } finally {
+            ctx.getMatrices().pop();
+            RenderSystem.enableDepthTest();
+            RenderSystem.enableBlend();
+            RenderSystem.defaultBlendFunc();
+        }
     }
 
     public static void drawSafeItemInSlot(DrawContext ctx, TextRenderer tr, net.minecraft.item.ItemStack stack, int x, int y) {
         if (stack.isEmpty()) return;
-        try { ctx.drawItemInSlot(tr, stack, x, y); } catch (Exception ignored) {}
+        ctx.getMatrices().push();
+        try {
+            ctx.drawItemInSlot(tr, stack, x, y);
+        } catch (Throwable t) {
+            NexusCharacters.LOGGER.warn("[Nexus] drawItemInSlot failed for {}: {}", stack.getItem(), t.toString());
+        } finally {
+            ctx.getMatrices().pop();
+        }
     }
 
     /**

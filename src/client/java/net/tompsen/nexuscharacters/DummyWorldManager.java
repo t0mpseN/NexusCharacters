@@ -6,9 +6,12 @@ import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.world.ClientWorld;
 import net.minecraft.entity.damage.DamageSources;
 import net.minecraft.registry.DynamicRegistryManager;
+import net.minecraft.registry.RegistryKey;
+import net.minecraft.registry.RegistryKeys;
 import net.minecraft.registry.Registries;
 import net.minecraft.resource.featuretoggle.FeatureFlags;
 import net.minecraft.resource.featuretoggle.FeatureSet;
+import net.minecraft.world.World;
 import net.minecraft.scoreboard.Scoreboard;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.random.Random;
@@ -75,6 +78,11 @@ public class DummyWorldManager {
         @Override
         public net.minecraft.scoreboard.Scoreboard getScoreboard() {
             return new net.minecraft.scoreboard.Scoreboard();
+        }
+
+        @Override
+        public RegistryKey<World> getRegistryKey() {
+            return World.OVERWORLD;
         }
 
         @Override
@@ -153,6 +161,7 @@ public class DummyWorldManager {
     private static Object resolveValue(Class<?> type, MinecraftClient client) {
         if (DynamicRegistryManager.class.isAssignableFrom(type)) return REGISTRIES;
         if (type == FeatureSet.class)                            return FeatureFlags.DEFAULT_ENABLED_FEATURES;
+        if (type == RegistryKey.class)                           return World.OVERWORLD;
         if (type == MinecraftClient.class)                       return client;
         if (DamageSources.class.isAssignableFrom(type))          return FAKE_DAMAGE_SOURCES;
         if (WorldBorder.class.isAssignableFrom(type))            return new WorldBorder();

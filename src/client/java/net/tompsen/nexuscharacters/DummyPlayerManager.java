@@ -30,16 +30,7 @@ public class DummyPlayerManager {
         DummyClientPlayer(ClientWorld world, GameProfile profile, UUID characterId) {
             super(world, profile);
             this.characterId = characterId;
-            // Force all model parts visible
-            try {
-                java.lang.reflect.Field partsField = net.minecraft.entity.player.PlayerEntity.class
-                        .getDeclaredField("PLAYER_MODEL_PARTS");
-                partsField.setAccessible(true);
-                @SuppressWarnings("unchecked")
-                net.minecraft.entity.data.TrackedData<Byte> partsData =
-                        (net.minecraft.entity.data.TrackedData<Byte>) partsField.get(null);
-                this.getDataTracker().set(partsData, (byte) 0x7F);
-            } catch (Throwable ignored) {}
+            forceModelPartsVisible(this);
         }
 
         @Override
@@ -97,18 +88,7 @@ public class DummyPlayerManager {
         dummy.setPosition(0, 0, 0);
         dummy.age = 20;
 
-        // Ativa todas as camadas de overlay (chapéu, jaqueta, mangas, calças)
-        try {
-            java.lang.reflect.Field partsField = net.minecraft.entity.player.PlayerEntity.class
-                    .getDeclaredField("PLAYER_MODEL_PARTS");
-            partsField.setAccessible(true);
-            @SuppressWarnings("unchecked")
-            net.minecraft.entity.data.TrackedData<Byte> partsData =
-                    (net.minecraft.entity.data.TrackedData<Byte>) partsField.get(null);
-            dummy.getDataTracker().set(partsData, (byte) 0x7F);
-        } catch (Throwable e) {
-            NexusCharacters.LOGGER.warn("[NexusCharacters] Falha ao ativar model parts: {}", e.getMessage());
-        }
+        forceModelPartsVisible(dummy);
 
         // 3. Equipar itens do inventário
         NbtCompound playerNbt = VaultManager.readPlayerNbt(character.id());
@@ -120,7 +100,8 @@ public class DummyPlayerManager {
             for (int i = 0; i < inventory.size(); i++) {
                 NbtCompound itemTag = inventory.getCompound(i);
                 int slot = itemTag.getByte("Slot") & 255;
-                ItemStack stack = ItemStack.fromNbt(itemTag);
+                ItemStack stack;
+                try { stack = ItemStack.fromNbt(itemTag); } catch (Exception ignored) { continue; }
 
                 if (!stack.isEmpty()) {
                     if (slot == 100) dummy.equipStack(EquipmentSlot.FEET, stack);
@@ -245,7 +226,8 @@ public class DummyPlayerManager {
         for (int i = 0; i < inventory.size(); i++) {
             NbtCompound itemTag = inventory.getCompound(i);
             int slot = itemTag.getByte("Slot") & 255;
-            ItemStack stack = ItemStack.fromNbt(itemTag);
+            ItemStack stack;
+            try { stack = ItemStack.fromNbt(itemTag); } catch (Exception ignored) { continue; }
             if (!stack.isEmpty()) {
                 if (slot == 100) dummy.equipStack(EquipmentSlot.FEET, stack);
                 else if (slot == 101) dummy.equipStack(EquipmentSlot.LEGS, stack);
@@ -256,6 +238,38 @@ public class DummyPlayerManager {
                     dummy.equipStack(EquipmentSlot.MAINHAND, stack);
                 }
             }
+        }
+    }
+
+    /**
+     * Forces all player model overlay parts (hat, jacket, sleeves, pants, cape) visible.
+     * Uses a field scan instead of getDeclaredField("PLAYER_MODEL_PARTS") because that
+     * name is the Yarn-mapped name and will be obfuscated in modpacks using other mappings.
+     * We find the TrackedData<Byte> static field in PlayerEntity by type signature.
+     */
+    private static void forceModelPartsVisible(OtherClientPlayerEntity entity) {
+        try {
+            for (java.lang.reflect.Field f : net.minecraft.entity.player.PlayerEntity.class.getDeclaredFields()) {
+                if (!java.lang.reflect.Modifier.isStatic(f.getModifiers())) continue;
+                if (!net.minecraft.entity.data.TrackedData.class.isAssignableFrom(f.getType())) continue;
+                f.setAccessible(true);
+                Object val = f.get(null);
+                if (val instanceof net.minecraft.entity.data.TrackedData<?> td) {
+                    // The model-parts TrackedData holds a Byte; skip others (Float, Boolean, etc.)
+                    try {
+                        Object current = entity.getDataTracker().get(td);
+                        if (current instanceof Byte) {
+                            @SuppressWarnings("unchecked")
+                            net.minecraft.entity.data.TrackedData<Byte> byteTd =
+                                    (net.minecraft.entity.data.TrackedData<Byte>) td;
+                            entity.getDataTracker().set(byteTd, (byte) 0x7F);
+                            return; // found and set
+                        }
+                    } catch (Throwable ignored) {}
+                }
+            }
+        } catch (Throwable e) {
+            NexusCharacters.LOGGER.warn("[NexusCharacters] forceModelPartsVisible failed: {}", e.getMessage());
         }
     }
 

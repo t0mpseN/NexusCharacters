@@ -175,7 +175,10 @@ public class CharacterListScreen extends Screen {
         int activeIndex = (hoveredIndex >= 0) ? hoveredIndex : selectedIndex;
         if (activeIndex >= 0 && activeIndex < characters.size()) {
             CharacterDto activeChar = characters.get(activeIndex);
-            drawLeftPanel(ctx, activeChar, cx, cy, ch, smX, smY);
+            drawLeftPanel(ctx, activeChar, cx, cy, ch, smX, smY, mouseX, mouseY);
+            // Flush any pending vertex consumers that entity rendering may have left dirty,
+            // so the right panel starts with a clean render state.
+            ctx.draw();
             tooltipItem = drawRightPanel(ctx, textRenderer, activeChar, cx + cwValue, cy, ch, smX, smY);
             if (equipmentToggle != null) equipmentToggle.visible = true;
             if (rotateToggle != null) rotateToggle.visible = true;
@@ -292,7 +295,7 @@ public class CharacterListScreen extends Screen {
         return super.mouseDragged(mouseX / scale, mouseY / scale, button, deltaX / scale, deltaY / scale);
     }
 
-    private void drawLeftPanel(DrawContext ctx, CharacterDto c, int centerPanelX, int centerPanelY, int centerHeight, int mouseX, int mouseY) {
+    private void drawLeftPanel(DrawContext ctx, CharacterDto c, int centerPanelX, int centerPanelY, int centerHeight, int mouseX, int mouseY, float screenMouseX, float screenMouseY) {
         int pw = 220, ph = centerHeight;
         int px = centerPanelX - pw - 12;
         int py = centerPanelY;
@@ -313,15 +316,40 @@ public class CharacterListScreen extends Screen {
                 DummyPlayerManager.applyEquipmentVisibility(lastShowEquipment);
             }
 
-            float angle = (System.currentTimeMillis() % 5000) / 5000.0f * (float)Math.PI * 2.0f;
-            float centerX = boxX + boxW / 2f;
-            float targetX = centerX + (float)Math.sin(angle) * 100f;
-            float targetY = boxY + boxH / 2f;
+            float scale = getScale();
 
-            float entityX = CharacterUiHelper.autoRotate ? targetX : (float)mouseX;
-            float entityY = CharacterUiHelper.autoRotate ? targetY : (float)mouseY;
+            // Draw position: centered X, 2/3 down the box (leaves head room above)
+            int drawX = (int)((boxX + boxW / 2f) * scale);
+            int drawY = (int)((boxY + boxH * 0.75f) * scale);
+            int entitySize = (int)(65 * scale);
 
-            InventoryScreen.drawEntity(ctx, boxX + boxW / 2, boxY + boxH - 10, 60, entityX, entityY, dummy);
+            // drawEntity rotates the entity TOWARD the offset: positive X = look right, positive Y = look up.
+            // To make the entity face the cursor we negate: entity turns toward where cursor is relative to it.
+            float lookAtX = -(screenMouseX - drawX);
+            float lookAtY = -(screenMouseY - drawY);
+
+            if (CharacterUiHelper.autoRotate) {
+                float angle = (System.currentTimeMillis() % 5000) / 5000.0f * (float)Math.PI * 2.0f;
+                lookAtX = (float)Math.sin(angle) * 80f;
+                lookAtY = 0f;
+            }
+
+            // Snapshot the matrix stack depth so we can rebalance it if drawEntity crashes
+            // mid-render (mod armor renderer does push() but never pop() on exception).
+            net.minecraft.client.util.math.MatrixStack matrices = ctx.getMatrices();
+            int stackDepthBefore = matrices.peek() != null ? countMatrixDepth(matrices) : 0;
+            try {
+                InventoryScreen.drawEntity(ctx, drawX, drawY, entitySize, lookAtX, lookAtY, dummy);
+            } catch (Throwable t) {
+                NexusCharacters.LOGGER.warn("[Nexus] drawEntity failed: {}", t.toString());
+                // Rebalance any push()es left open by the crashed renderer
+                int stackDepthAfter = countMatrixDepth(matrices);
+                for (int i = stackDepthAfter; i > stackDepthBefore; i--) matrices.pop();
+                // Restore GL state
+                com.mojang.blaze3d.systems.RenderSystem.enableDepthTest();
+                com.mojang.blaze3d.systems.RenderSystem.enableBlend();
+                com.mojang.blaze3d.systems.RenderSystem.defaultBlendFunc();
+            }
         }
     }
 
@@ -344,7 +372,10 @@ public class CharacterListScreen extends Screen {
             for (int i = 0; i < inventory.size(); i++) {
                 NbtCompound itemTag = inventory.getCompound(i);
                 int slot = itemTag.getByte("Slot") & 255;
-                if (slot < 104) invItems[slot] = ItemStack.fromNbt(itemTag);
+                if (slot < 104) {
+                    try { invItems[slot] = ItemStack.fromNbt(itemTag); }
+                    catch (Exception ignored) {}
+                }
             }
         }
 
@@ -411,17 +442,20 @@ public class CharacterListScreen extends Screen {
 
         int row1Y = statsY + 16;
 
+        // Align heart icon (12px), text (fontHeight px) and XP bar (5px) on the same row.
+        int iconH = 12, barH = 5, fontH = tr.fontHeight;
+        int rowH = Math.max(iconH, fontH); // common row height
         int hpX = px + 20;
-        ctx.drawTexture(CharacterUiHelper.HEART_ICON, hpX, row1Y, 0, 0, 12, 12, 12, 12);
+        ctx.drawTexture(CharacterUiHelper.HEART_ICON, hpX, row1Y + (rowH - iconH) / 2, 0, 0, 12, 12, 12, 12);
         Text hpTxt = Text.literal((int)hp + "/20").setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterUiHelper.CUSTOM_FONT)).formatted(Formatting.RED);
-        CharacterUiHelper.drawRetroText(ctx, tr, hpTxt, hpX + 16, row1Y + 3, 0xFFFFFF);
+        CharacterUiHelper.drawRetroText(ctx, tr, hpTxt, hpX + 16, row1Y + (rowH - fontH) / 2, 0xFFFFFF);
 
         int barW = 110;
         int barX = (px + pw - 20) - barW;
-        int barY = row1Y + 4;
+        int barY = row1Y + (rowH - barH) / 2;
 
         Text lvlTxt = Text.literal("LVL " + (isCreative ? "∞" : level)).setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterUiHelper.CUSTOM_FONT)).formatted(isCreative ? Formatting.AQUA : Formatting.GREEN);
-        CharacterUiHelper.drawRetroText(ctx, tr, lvlTxt, barX - tr.getWidth(lvlTxt) - 6, row1Y + 3, 0xFFFFFF);
+        CharacterUiHelper.drawRetroText(ctx, tr, lvlTxt, barX - tr.getWidth(lvlTxt) - 6, row1Y + (rowH - fontH) / 2, 0xFFFFFF);
 
         ctx.fill(barX, barY, barX + barW, barY + 5, 0xFF000000);
         ctx.fill(barX + 1, barY + 1, barX + barW - 1, barY + 4, 0xFF383838);
@@ -522,6 +556,26 @@ public class CharacterListScreen extends Screen {
         }
 
         return hoveredItem;
+    }
+
+    private static java.lang.reflect.Field MATRIX_STACK_FIELD;
+    private static int countMatrixDepth(net.minecraft.client.util.math.MatrixStack stack) {
+        try {
+            if (MATRIX_STACK_FIELD == null) {
+                for (java.lang.reflect.Field f : net.minecraft.client.util.math.MatrixStack.class.getDeclaredFields()) {
+                    if (java.util.Deque.class.isAssignableFrom(f.getType())) {
+                        f.setAccessible(true);
+                        MATRIX_STACK_FIELD = f;
+                        break;
+                    }
+                }
+            }
+            if (MATRIX_STACK_FIELD != null) {
+                java.util.Deque<?> deque = (java.util.Deque<?>) MATRIX_STACK_FIELD.get(stack);
+                return deque != null ? deque.size() : 1;
+            }
+        } catch (Throwable ignored) {}
+        return 1;
     }
 
     @Override public boolean shouldCloseOnEsc() { return true; }

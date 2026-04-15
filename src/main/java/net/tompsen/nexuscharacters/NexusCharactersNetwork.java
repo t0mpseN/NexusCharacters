@@ -90,7 +90,17 @@ public class NexusCharactersNetwork {
             return;
         }
 
-        respawnPlayer(player);
+        // Use respawnPlayer so mods that load per-player data at entity-construction time
+        // (e.g. Prominent Talents, most capability/attachment systems) re-read from the vault
+        // files we just wrote to disk. applyCharacterData alone only patches vanilla NBT on
+        // the existing entity instance, which mod systems that cached state at join ignore.
+        // alive=true → "dimension-change" style respawn, no death screen on client.
+        //
+        // Delay by 1 tick so the client finishes its initial join sequence (chunk loading,
+        // capability sync packets from other mods) before we trigger the respawn. Without
+        // this delay the client can end up in a broken half-loaded state.
+        final ServerPlayerEntity finalPlayer = player;
+        finalPlayer.server.execute(() -> respawnPlayer(finalPlayer));
     }
 
     // ── Helper: send a payload S2C ────────────────────────────────────────────

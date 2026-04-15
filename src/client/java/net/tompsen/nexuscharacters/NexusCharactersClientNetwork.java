@@ -2,11 +2,39 @@ package net.tompsen.nexuscharacters;
 
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.fabricmc.fabric.api.networking.v1.PacketByteBufs;
+import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.toast.SystemToast;
 import net.minecraft.network.PacketByteBuf;
 import net.minecraft.text.Text;
 
 public class NexusCharactersClientNetwork {
+
+    /** Set when the server has requested character selection; cleared once the screen opens or on disconnect. */
+    public static volatile boolean pendingCharacterSelection = false;
+
+    /**
+     * Schedules the character selection screen to open once the client's current screen is null
+     * (i.e. the player is fully in the game world, past "Downloading terrain..." etc.).
+     * Polls every tick by re-queuing itself on the client thread until ready.
+     */
+    private static void openCharacterSelectionWhenReady(MinecraftClient client, Runnable onConfirm) {
+        client.execute(new Runnable() {
+            @Override
+            public void run() {
+                if (!pendingCharacterSelection) return; // cancelled (e.g. disconnected)
+                // Wait until the client world is loaded — this is true once the player is
+                // fully in-game, regardless of what overlay screen is currently showing.
+                if (client.world == null) {
+                    client.execute(this);
+                    return;
+                }
+                pendingCharacterSelection = false;
+                NexusCharacters.LOGGER.info("[Client] Opening CharacterSelectionScreen (world loaded).");
+                client.setScreen(new CharacterSelectionScreen(null, onConfirm));
+            }
+        });
+    }
+
     public static void register() {
 
         // ── Play-phase handlers ───────────────────────────────────────────────
@@ -16,8 +44,9 @@ public class NexusCharactersClientNetwork {
                 (client, handler, buf, responseSender) -> {
                     new CharacterSelectRequestPayload(buf); // consume buf
                     client.execute(() -> {
-                        NexusCharacters.LOGGER.info("[Client] Received CharacterSelectRequest — showing picker.");
-                        client.setScreen(new CharacterSelectionScreen(null, () -> {
+                        NexusCharacters.LOGGER.info("[Client] Received CharacterSelectRequest — deferring picker until game ready.");
+                        pendingCharacterSelection = true;
+                        Runnable onConfirm = () -> {
                             if (NexusCharacters.selectedCharacter == null) {
                                 NexusCharacters.LOGGER.warn("[Client] No character selected — cannot proceed.");
                                 return;
@@ -27,7 +56,8 @@ public class NexusCharactersClientNetwork {
                             new SelectCharacterPayload(NexusCharacters.selectedCharacter).write(sendBuf);
                             ClientPlayNetworking.send(SelectCharacterPayload.ID, sendBuf);
                             client.setScreen(null);
-                        }));
+                        };
+                        openCharacterSelectionWhenReady(client, onConfirm);
                     });
                 });
 

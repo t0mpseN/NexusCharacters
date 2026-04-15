@@ -172,6 +172,7 @@ public class CharacterSelectionScreen extends Screen {
         if (hoveredIndex >= 0 && hoveredIndex < characters.size()) {
             CharacterDto activeChar = characters.get(hoveredIndex);
             drawLeftPanel(ctx, activeChar, cx, cy, ch, smX, smY);
+            ctx.draw();
             tooltipItem = drawRightPanel(ctx, textRenderer, activeChar, cx + cwValue, cy, ch, smX, smY);
             if (equipmentToggle != null) equipmentToggle.visible = true;
             if (rotateToggle != null) rotateToggle.visible = true;
@@ -293,21 +294,37 @@ public class CharacterSelectionScreen extends Screen {
 
         OtherClientPlayerEntity dummy = DummyPlayerManager.getDummyPlayer(c);
         if (dummy != null) {
-            // Apply equipment visibility only when the toggle changes, not every frame.
             if (CharacterUiHelper.showEquipment != lastShowEquipment) {
                 lastShowEquipment = CharacterUiHelper.showEquipment;
                 DummyPlayerManager.applyEquipmentVisibility(lastShowEquipment);
             }
 
-            float angle = (System.currentTimeMillis() % 5000) / 5000.0f * (float)Math.PI * 2.0f;
-            float centerX = boxX + boxW / 2f;
-            float targetX = centerX + (float)Math.sin(angle) * 100f;
-            float targetY = boxY + boxH / 2f;
+            float scale = getScale();
+            int drawX = (int)((boxX + boxW / 2f) * scale);
+            int drawY = (int)((boxY + boxH * 0.75f) * scale);
+            int entitySize = (int)(65 * scale);
 
-            float entityX = CharacterUiHelper.autoRotate ? targetX : (float)mouseX;
-            float entityY = CharacterUiHelper.autoRotate ? targetY : (float)mouseY;
+            float lookAtX = -(mouseX * scale - drawX);
+            float lookAtY = -(mouseY * scale - drawY);
 
-            InventoryScreen.drawEntity(ctx, boxX + boxW / 2, boxY + boxH - 10, 60, entityX, entityY, dummy);
+            if (CharacterUiHelper.autoRotate) {
+                float angle = (System.currentTimeMillis() % 5000) / 5000.0f * (float)Math.PI * 2.0f;
+                lookAtX = (float)Math.sin(angle) * 80f;
+                lookAtY = 0f;
+            }
+
+            net.minecraft.client.util.math.MatrixStack matrices = ctx.getMatrices();
+            int stackDepthBefore = countMatrixDepth(matrices);
+            try {
+                InventoryScreen.drawEntity(ctx, drawX, drawY, entitySize, lookAtX, lookAtY, dummy);
+            } catch (Throwable t) {
+                NexusCharacters.LOGGER.warn("[Nexus] drawEntity failed: {}", t.toString());
+                int stackDepthAfter = countMatrixDepth(matrices);
+                for (int i = stackDepthAfter; i > stackDepthBefore; i--) matrices.pop();
+                com.mojang.blaze3d.systems.RenderSystem.enableDepthTest();
+                com.mojang.blaze3d.systems.RenderSystem.enableBlend();
+                com.mojang.blaze3d.systems.RenderSystem.defaultBlendFunc();
+            }
         }
     }
 
@@ -330,7 +347,10 @@ public class CharacterSelectionScreen extends Screen {
             for (int i = 0; i < inventory.size(); i++) {
                 NbtCompound itemTag = inventory.getCompound(i);
                 int slot = itemTag.getByte("Slot") & 255;
-                if (slot < 104) invItems[slot] = ItemStack.fromNbt(itemTag);
+                if (slot < 104) {
+                    try { invItems[slot] = ItemStack.fromNbt(itemTag); }
+                    catch (Exception ignored) {}
+                }
             }
         }
 
@@ -397,17 +417,19 @@ public class CharacterSelectionScreen extends Screen {
 
         int row1Y = statsY + 16;
 
+        int iconH = 12, barH = 5, fontH = tr.fontHeight;
+        int rowH = Math.max(iconH, fontH);
         int hpX = px + 20;
-        ctx.drawTexture(CharacterUiHelper.HEART_ICON, hpX, row1Y, 0, 0, 12, 12, 12, 12);
+        ctx.drawTexture(CharacterUiHelper.HEART_ICON, hpX, row1Y + (rowH - iconH) / 2, 0, 0, 12, 12, 12, 12);
         Text hpTxt = Text.literal((int)hp + "/20").setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterUiHelper.CUSTOM_FONT)).formatted(Formatting.RED);
-        CharacterUiHelper.drawRetroText(ctx, tr, hpTxt, hpX + 16, row1Y + 3, 0xFFFFFF);
+        CharacterUiHelper.drawRetroText(ctx, tr, hpTxt, hpX + 16, row1Y + (rowH - fontH) / 2, 0xFFFFFF);
 
         int barW = 110;
         int barX = (px + pw - 20) - barW;
-        int barY = row1Y + 4;
+        int barY = row1Y + (rowH - barH) / 2;
 
         Text lvlTxt = Text.literal("LVL " + (isCreative ? "∞" : level)).setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterUiHelper.CUSTOM_FONT)).formatted(isCreative ? Formatting.AQUA : Formatting.GREEN);
-        CharacterUiHelper.drawRetroText(ctx, tr, lvlTxt, barX - tr.getWidth(lvlTxt) - 6, row1Y + 3, 0xFFFFFF);
+        CharacterUiHelper.drawRetroText(ctx, tr, lvlTxt, barX - tr.getWidth(lvlTxt) - 6, row1Y + (rowH - fontH) / 2, 0xFFFFFF);
 
         ctx.fill(barX, barY, barX + barW, barY + 5, 0xFF000000);
         ctx.fill(barX + 1, barY + 1, barX + barW - 1, barY + 4, 0xFF383838);
@@ -512,6 +534,26 @@ public class CharacterSelectionScreen extends Screen {
         return hoveredItem;
     }
 
+    private static java.lang.reflect.Field MATRIX_STACK_FIELD;
+    private static int countMatrixDepth(net.minecraft.client.util.math.MatrixStack stack) {
+        try {
+            if (MATRIX_STACK_FIELD == null) {
+                for (java.lang.reflect.Field f : net.minecraft.client.util.math.MatrixStack.class.getDeclaredFields()) {
+                    if (java.util.Deque.class.isAssignableFrom(f.getType())) {
+                        f.setAccessible(true);
+                        MATRIX_STACK_FIELD = f;
+                        break;
+                    }
+                }
+            }
+            if (MATRIX_STACK_FIELD != null) {
+                java.util.Deque<?> deque = (java.util.Deque<?>) MATRIX_STACK_FIELD.get(stack);
+                return deque != null ? deque.size() : 1;
+            }
+        } catch (Throwable ignored) {}
+        return 1;
+    }
+
     @Override
     public boolean shouldCloseOnEsc() {
         return false;
@@ -519,7 +561,9 @@ public class CharacterSelectionScreen extends Screen {
 
     @Override
     public void removed() {
-        if (!isSwitchingScreen && NexusCharacters.selectedCharacter == null && client.getNetworkHandler() != null) {
+        if (!isSwitchingScreen && NexusCharacters.selectedCharacter == null
+                && !NexusCharactersClientNetwork.pendingCharacterSelection
+                && client.getNetworkHandler() != null) {
             client.getNetworkHandler().getConnection().disconnect(net.minecraft.text.Text.literal("You must select a character to play."));
         }
         super.removed();

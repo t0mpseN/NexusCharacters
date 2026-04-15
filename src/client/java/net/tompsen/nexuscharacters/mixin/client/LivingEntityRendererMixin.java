@@ -8,7 +8,7 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
-@Mixin(net.minecraft.client.render.entity.LivingEntityRenderer.class)
+@Mixin(value = net.minecraft.client.render.entity.LivingEntityRenderer.class, priority = 500)
 public abstract class LivingEntityRendererMixin {
 
     @Inject(
@@ -16,9 +16,14 @@ public abstract class LivingEntityRendererMixin {
             at = @At("HEAD"),
             cancellable = true
     )
-    private void guardNullPlayer(LivingEntity entity,
+    private void guardNullCamera(LivingEntity entity,
                                  CallbackInfoReturnable<Boolean> cir) {
-        if (MinecraftClient.getInstance().player == null) {
+        MinecraftClient client = MinecraftClient.getInstance();
+        // Cancel label rendering if there is no active camera (e.g. rendering a dummy
+        // entity on the main menu). Without this, mods that access dispatcher.camera
+        // in their own hasLabel injections will crash with a NullPointerException.
+        if (client.player == null
+                || client.getEntityRenderDispatcher().camera == null) {
             cir.setReturnValue(false);
         }
     }
