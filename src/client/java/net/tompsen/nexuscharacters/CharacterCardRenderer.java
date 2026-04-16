@@ -48,7 +48,8 @@ public class CharacterCardRenderer {
         }
 
         Text classTxt = Text.literal(classStr).setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterUiHelper.CUSTOM_FONT)).formatted(color);
-        CharacterUiHelper.drawRetroText(ctx, tr, classTxt, x + 56 + tr.getWidth(nameTxt) + 8, y + 14, 0xFFFFFF);
+        int classColor = color.getColorValue() != null ? (0xFF000000 | color.getColorValue()) : 0xFFFFFFFF;
+        CharacterUiHelper.drawRetroText(ctx, tr, classTxt, x + 56 + tr.getWidth(nameTxt) + 8, y + 14, classColor);
 
         // Level (Don't show for Creative/Spectator)
         if (gameMode != 1 && gameMode != 3) {

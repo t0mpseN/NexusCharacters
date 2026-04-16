@@ -569,19 +569,68 @@ public class VaultManager {
             // Build a set of mod ID + display-name tokens for fuzzy matching.
             Set<String> loadedModIds = buildLoadedModTokens();
 
+            // Collect dir names that appear in 2+ world saves. This handles mods like Cobblemon
+            // whose folder name has no lexical relationship to the mod ID (e.g. "pokemon/").
+            // Requiring 2+ worlds filters out dirs deposited by a single character from another
+            // modpack that was loaded into one world here — those only appear once.
+            Set<String> worldOnlyDirNames = buildWorldDirNamesExcludingVault();
+
             List<String> missing = new ArrayList<>();
             try (Stream<Path> top = Files.list(vaultDir)) {
                 top.filter(Files::isDirectory)
                    .map(p -> p.getFileName().toString())
                    .filter(n -> !standardDirs.contains(n))
                    .forEach(dirName -> {
-                       if (!isCoveredByLoadedMod(dirName.toLowerCase(), loadedModIds)) {
-                           missing.add(dirName);
-                       }
+                       if (isCoveredByLoadedMod(dirName.toLowerCase(), loadedModIds)) return;
+                       if (worldOnlyDirNames.contains(dirName.toLowerCase())) return;
+                       missing.add(dirName);
                    });
             } catch (IOException ignored) {}
             return List.copyOf(missing);
         });
+    }
+
+    /**
+     * Scans all world saves and collects top-level subdirectory names (excluding
+     * standard Minecraft dirs) that appear in MORE THAN ONE world save.
+     *
+     * <p>A dir name found in only one world was likely deposited there by a single
+     * character (e.g. an FTB character loaded into a Cobblemon world). A dir name
+     * present in multiple worlds is almost certainly created by a mod that is
+     * installed in this game instance (e.g. Cobblemon's {@code pokemon/} directory).
+     */
+    private static Set<String> buildWorldDirNamesExcludingVault() {
+        Set<String> vanillaDirs = Set.of(
+                "playerdata", "advancements", "stats", "data",
+                "region", "entities", "poi", "dimensions",
+                "DIM1", "DIM-1", "level.dat", "level.dat_old",
+                "session.lock", "icon.png", "resources.zip"
+        );
+
+        // Count how many distinct worlds contain each dir name.
+        Map<String, Integer> worldCount = new HashMap<>();
+        Path savesDir = FabricLoader.getInstance().getGameDir().resolve("saves");
+        if (!Files.isDirectory(savesDir)) return Set.of();
+        try (Stream<Path> worlds = Files.list(savesDir)) {
+            worlds.filter(Files::isDirectory).forEach(worldDir -> {
+                try (Stream<Path> contents = Files.list(worldDir)) {
+                    contents.filter(Files::isDirectory)
+                            .map(p -> p.getFileName().toString())
+                            .filter(n -> !vanillaDirs.contains(n))
+                            .map(String::toLowerCase)
+                            .distinct()
+                            .forEach(n -> worldCount.merge(n, 1, Integer::sum));
+                } catch (IOException ignored) {}
+            });
+        } catch (IOException ignored) {}
+
+        // Only treat a dir name as "installed mod" if it appears in at least 2 worlds.
+        // Single-world occurrences are likely character-deposited data from another modpack.
+        Set<String> known = new HashSet<>();
+        worldCount.forEach((name, count) -> {
+            if (count >= 2) known.add(name);
+        });
+        return known;
     }
 
     /**

@@ -495,7 +495,6 @@ public class CharacterSelectionScreen extends Screen {
         CharacterUiHelper.drawRetroText(ctx, tr, stat2, col1, extraY + 14, 0xFFFFFF);
         CharacterUiHelper.drawRetroText(ctx, tr, stat3, col1, extraY + 28, 0xFFFFFF);
 
-
         CharacterUiHelper.AdvancementInfo latestAdv = CharacterUiHelper.getLatestAdvancement(c);
 
         int badgeH = 72;
