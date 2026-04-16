@@ -186,7 +186,7 @@ public class NexusCharacters implements ModInitializer {
 					allFiles.putAll(VaultManager.collectAdvancementsFile(worldDir, disconnectUuid));
 					allFiles.put("playerdata/" + VaultManager.PLAYER_TOKEN + ".dat", playerNbtBytes);
 					
-					ServerPlayNetworking.send(player, new VaultSyncPayload(charToSave.id(), allFiles));
+					ServerPlayNetworking.send(player, new VaultSyncPayload(charToSave.id(), allFiles, false));
 					LOGGER.info("[Nexus] DISCONNECT: sent final VaultSyncPayload ({} files) to {}.",
 							allFiles.size(), player.getName().getString());
 				} catch (Exception e) {
@@ -273,7 +273,7 @@ public class NexusCharacters implements ModInitializer {
 						
 						final java.util.Map<String, byte[]> snapshot = java.util.Collections.unmodifiableMap(files);
 						tickServer.execute(() ->
-								ServerPlayNetworking.send(player, new VaultSyncPayload(charId, snapshot)));
+								ServerPlayNetworking.send(player, new VaultSyncPayload(charId, snapshot, false)));
 					} catch (Exception ignored) {}
 				}, "NexusChars-VaultSync").start();
 			}
@@ -300,8 +300,86 @@ public class NexusCharacters implements ModInitializer {
 		net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> {
 			dispatcher.register(
 				net.minecraft.server.command.CommandManager.literal("nexus")
-					.requires(src -> src.hasPermissionLevel(2))
-					.then(net.minecraft.server.command.CommandManager.literal("saveinterval")
+					.then(net.minecraft.server.command.CommandManager.literal("save")
+						.executes(ctx -> {
+							net.minecraft.server.command.ServerCommandSource src = ctx.getSource();
+							if (!(src.getEntity() instanceof net.minecraft.server.network.ServerPlayerEntity player)) {
+								src.sendFeedback(() -> net.minecraft.text.Text.literal("[Nexus] Only players can use this command."), false);
+								return 0;
+							}
+							CharacterDto character = getSelectedCharacter(player);
+							if (character == null) {
+								src.sendFeedback(() -> net.minecraft.text.Text.literal("[Nexus] No active character to save."), false);
+								return 0;
+							}
+
+							// Flush world and mod data to disk first — matches what the autosave does on full-sync
+							// ticks. flush=true waits for async I/O to complete so mod files (Cobblemon Pokedex,
+							// backpacks, etc.) are fully written before we read them.
+							try { player.server.save(true, true, false); } catch (Exception ignored) {}
+
+							// Flush disk data on the server thread
+							String worldId = CharacterDataManager.getWorldId(player);
+							VaultManager.saveWorldPosition(character.id(), worldId,
+									player.getX(), player.getY(), player.getZ(),
+									player.getYaw(), player.getPitch());
+							try { player.getAdvancementTracker().save(); } catch (Exception ignored) {}
+							try { player.getStatHandler().save(); } catch (Exception ignored) {}
+							try {
+								((net.tompsen.nexuscharacters.mixin.PlayerManagerAccessor) player.server.getPlayerManager())
+										.invokeSavePlayerData(player);
+							} catch (Exception ignored) {}
+
+							final byte[] nbtBytes;
+							try {
+								nbtBytes = VaultManager.serializePlayerNbtTokenized(player);
+							} catch (Exception e) {
+								src.sendFeedback(() -> net.minecraft.text.Text.literal("[Nexus] Save failed: could not serialize player data."), false);
+								return 0;
+							}
+
+							final UUID charId = character.id();
+							final UUID playerUuid = player.getUuid();
+							final net.minecraft.server.MinecraftServer saveServer = player.server;
+
+							new Thread(() -> {
+								try {
+									java.nio.file.Path worldDir = saveServer.getSavePath(net.minecraft.util.WorldSavePath.ROOT)
+											.toAbsolutePath().normalize();
+
+									// For singleplayer/LAN host: directly copy world → vault, mirroring what
+									// CharacterDataManager.saveCurrentCharacter() does on disconnect. This handles
+									// UUID-named data/ files (e.g. Cobblemon Pokedex) that VaultSyncPayload skips
+									// due to its UUID path filter.
+									if (!saveServer.isDedicated()) {
+										VaultManager.copyWorldToVault(charId, worldDir, playerUuid);
+									}
+
+									java.util.Map<String, byte[]> files = new java.util.LinkedHashMap<>();
+									files.putAll(VaultManager.collectEssentialFiles(charId, worldDir, playerUuid));
+									files.putAll(VaultManager.collectModFiles(charId, worldDir, playerUuid));
+									files.putAll(VaultManager.collectAdvancementsFile(worldDir, playerUuid));
+									files.put("playerdata/" + VaultManager.PLAYER_TOKEN + ".dat", nbtBytes);
+									final java.util.Map<String, byte[]> snapshot = java.util.Collections.unmodifiableMap(files);
+									saveServer.execute(() -> {
+										// Re-fetch the live player in case they disconnected during disk I/O
+										net.minecraft.server.network.ServerPlayerEntity livePlayer =
+												saveServer.getPlayerManager().getPlayer(playerUuid);
+										if (livePlayer == null) return;
+										if (ServerPlayNetworking.canSend(livePlayer, VaultSyncPayload.ID)) {
+											ServerPlayNetworking.send(livePlayer, new VaultSyncPayload(charId, snapshot, true));
+										}
+									});
+								} catch (Exception e) {
+									LOGGER.warn("[Nexus] Manual save failed for {}: {}", playerUuid, e.getMessage());
+								}
+							}, "NexusChars-ManualSave").start();
+
+							src.sendFeedback(() -> net.minecraft.text.Text.literal("[Nexus] Saving your character progress..."), false);
+							return 1;
+						}))
+					.then(net.minecraft.server.command.CommandManager.literal("autosaveinterval")
+						.requires(src -> src.hasPermissionLevel(2))
 						.then(net.minecraft.server.command.CommandManager.argument("seconds",
 								com.mojang.brigadier.arguments.IntegerArgumentType.integer(1, 3600))
 							.executes(ctx -> {
@@ -314,6 +392,20 @@ public class NexusCharacters implements ModInitializer {
 												+ seconds + "s (takes effect immediately, persisted)."), true);
 								return 1;
 							}))));
+		});
+
+		// Vault Sync Ack Handler
+		net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking.registerGlobalReceiver(VaultSyncAckPayload.ID, (payload, ctx) -> {
+			ctx.server().execute(() -> {
+				net.minecraft.server.network.ServerPlayerEntity player = ctx.player();
+				CharacterDto character = getSelectedCharacter(player);
+				if (character != null && character.id().equals(payload.characterId())) {
+					if (net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking.canSend(player, SaveAckPayload.ID)) {
+						net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking.send(player, new SaveAckPayload());
+					}
+					player.sendMessage(net.minecraft.text.Text.literal("[Nexus] Character data saved successfully."), false);
+				}
+			});
 		});
 	}
 }

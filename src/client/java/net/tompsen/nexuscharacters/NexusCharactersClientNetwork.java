@@ -2,6 +2,8 @@ package net.tompsen.nexuscharacters;
 
 import net.fabricmc.fabric.api.client.networking.v1.ClientConfigurationNetworking;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
+import net.minecraft.client.toast.SystemToast;
+import net.minecraft.text.Text;
 
 public class NexusCharactersClientNetwork {
     public static void register() {
@@ -82,10 +84,18 @@ public class NexusCharactersClientNetwork {
         // Write them straight into the local vault so the client always has
         // up-to-date data even if the server crashes or the player disconnects.
         ClientPlayNetworking.registerGlobalReceiver(VaultSyncPayload.ID, (payload, ctx) -> {
-            if (payload.files().isEmpty()) return;
+            if (payload.files().isEmpty()) {
+                if (payload.isManual()) {
+                    ClientPlayNetworking.send(new VaultSyncAckPayload(payload.characterId()));
+                }
+                return;
+            }
             // Write on the client thread to avoid races with UI reads
             ctx.client().execute(() -> {
                 VaultManager.applyVaultSync(payload.characterId(), payload.files());
+                if (payload.isManual()) {
+                    ClientPlayNetworking.send(new VaultSyncAckPayload(payload.characterId()));
+                }
             });
         });
 
@@ -94,6 +104,18 @@ public class NexusCharactersClientNetwork {
             ctx.client().execute(() -> {
                 NexusCharacters.DATA_FILE_MANAGER.deleteCharacter(payload.characterId());
                 NexusCharacters.LOGGER.info("[Client] Hardcore character {} deleted by server.", payload.characterId());
+            });
+        });
+
+        // Manual save acknowledged — show a toast notification.
+        ClientPlayNetworking.registerGlobalReceiver(SaveAckPayload.ID, (payload, ctx) -> {
+            ctx.client().execute(() -> {
+                SystemToast.add(
+                        ctx.client().getToastManager(),
+                        SystemToast.Type.WORLD_BACKUP,
+                        Text.literal("Progress Saved"),
+                        Text.literal("Your character data has been saved.")
+                );
             });
         });
     }

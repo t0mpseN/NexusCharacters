@@ -58,5 +58,13 @@ public class CharacterCardRenderer {
             Text lvlTxt = Text.literal("LVL " + level).setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterUiHelper.CUSTOM_FONT)).formatted(Formatting.YELLOW);
             CharacterUiHelper.drawRetroText(ctx, tr, lvlTxt, x + 56, y + 30, 0xFFFFFF);
         }
+
+        // Small corner indicator when mod data may be missing
+        if (!VaultManager.detectPotentiallyMissingMods(c.id()).isEmpty()) {
+            Text warnIndicator = Text.literal("!")
+                    .setStyle(net.minecraft.text.Style.EMPTY.withFont(CharacterUiHelper.CUSTOM_FONT))
+                    .formatted(Formatting.GOLD);
+            CharacterUiHelper.drawRetroText(ctx, tr, warnIndicator, x + CARD_W - 14, y + 5, 0xFFFF8800);
+        }
     }
 }

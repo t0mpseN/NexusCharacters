@@ -14,7 +14,7 @@ import java.util.UUID;
  * Carries a map of vault-relative paths → file bytes for one character.
  * Sent every second during play so the client always has a fresh local copy.
  */
-public record VaultSyncPayload(UUID characterId, Map<String, byte[]> files) implements CustomPayload {
+public record VaultSyncPayload(UUID characterId, Map<String, byte[]> files, boolean isManual) implements CustomPayload {
 
     public static final Id<VaultSyncPayload> ID =
             new Id<>(Identifier.of(NexusCharacters.MOD_ID, "vault_sync"));
@@ -22,7 +22,7 @@ public record VaultSyncPayload(UUID characterId, Map<String, byte[]> files) impl
             PacketCodec.of(VaultSyncPayload::write, VaultSyncPayload::new);
 
     public VaultSyncPayload(PacketByteBuf buf) {
-        this(buf.readUuid(), readFiles(buf));
+        this(buf.readUuid(), readFiles(buf), buf.readBoolean());
     }
 
     private static Map<String, byte[]> readFiles(PacketByteBuf buf) {
@@ -43,6 +43,7 @@ public record VaultSyncPayload(UUID characterId, Map<String, byte[]> files) impl
             buf.writeString(entry.getKey());
             buf.writeByteArray(entry.getValue());
         }
+        buf.writeBoolean(isManual);
     }
 
     @Override

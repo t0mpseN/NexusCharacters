@@ -153,6 +153,7 @@ public class NexusCharactersNetwork {
         PayloadTypeRegistry.playC2S().register(SelectCharacterPayload.ID,   SelectCharacterPayload.CODEC);
         PayloadTypeRegistry.playC2S().register(VaultChunkC2SPayload.ID,     VaultChunkC2SPayload.CODEC);
         PayloadTypeRegistry.playC2S().register(VaultTransferDoneC2SPayload.ID, VaultTransferDoneC2SPayload.CODEC);
+        PayloadTypeRegistry.playC2S().register(VaultSyncAckPayload.ID,      VaultSyncAckPayload.CODEC);
 
         // Play-phase S2C
         PayloadTypeRegistry.playS2C().register(ModPresentPayload.ID,              PacketCodec.unit(new ModPresentPayload()));
@@ -162,6 +163,7 @@ public class NexusCharactersNetwork {
         PayloadTypeRegistry.playS2C().register(VaultTransferDoneS2CPayload.ID,    VaultTransferDoneS2CPayload.CODEC);
         PayloadTypeRegistry.playS2C().register(VaultSyncPayload.ID,               VaultSyncPayload.CODEC);
         PayloadTypeRegistry.playS2C().register(CharacterDeletedPayload.ID,        CharacterDeletedPayload.CODEC);
+        PayloadTypeRegistry.playS2C().register(SaveAckPayload.ID,                 SaveAckPayload.CODEC);
 
         // ── Configuration-phase server event ──────────────────────────────────
         // On dedicated servers AND LAN non-host clients: add a task that blocks the
