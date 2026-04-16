@@ -1,11 +1,14 @@
 package net.tompsen.nexuscharacters;
 
+import net.fabricmc.fabric.api.client.networking.v1.ClientLoginNetworking;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.fabricmc.fabric.api.networking.v1.PacketByteBufs;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.toast.SystemToast;
 import net.minecraft.network.PacketByteBuf;
 import net.minecraft.text.Text;
+
+import java.util.concurrent.CompletableFuture;
 
 public class NexusCharactersClientNetwork {
 
@@ -36,6 +39,61 @@ public class NexusCharactersClientNetwork {
     }
 
     public static void register() {
+
+        // ── Login-phase handler ───────────────────────────────────────────────
+        //
+        // The server sends a login query during the handshake (before the player entity
+        // is constructed). We show the character selection screen and send back the
+        // selected character. The server then stages the vault before player data loads,
+        // so mods like Cobblemon read the correct files at join time.
+
+        ClientLoginNetworking.registerGlobalReceiver(NexusCharactersNetwork.LOGIN_QUERY_ID,
+                (client, handler, buf, listenerAdder) -> {
+                    // The handler must return a CompletableFuture<PacketByteBuf>.
+                    // Completing it with null = "not understood"; with a buf = our response.
+                    CompletableFuture<PacketByteBuf> future = new CompletableFuture<>();
+
+                    client.execute(() -> {
+                        NexusCharacters.LOGGER.info("[Client] Login-phase character select query received.");
+                        // Show the character selection screen on top of the connecting/login screen.
+                        // We subclass to override close() so the future is always completed,
+                        // even if the user navigates back without picking a character.
+                        CharacterSelectionScreen picker = new CharacterSelectionScreen(client.currentScreen, () -> {
+                            if (NexusCharacters.selectedCharacter == null) {
+                                NexusCharacters.LOGGER.warn("[Client] No character selected at login — proceeding without character staging.");
+                                future.complete(null);
+                                return;
+                            }
+                            CharacterDto selected = NexusCharacters.selectedCharacter;
+                            NexusCharacters.LOGGER.info("[Client] Login-phase character confirmed: {}", selected.name());
+                            // Send DTO + vault zip so the server can stage files before player data loads.
+                            // This covers both first-time joins (no server vault) and returning players.
+                            try {
+                                byte[] zip = VaultManager.zipVault(selected.id());
+                                PacketByteBuf responseBuf = PacketByteBufs.create();
+                                responseBuf.writeNbt(selected.toNbt());
+                                responseBuf.writeByteArray(zip);
+                                future.complete(responseBuf);
+                            } catch (Exception e) {
+                                NexusCharacters.LOGGER.error("[Client] Failed to zip vault for login response: {}", e.getMessage());
+                                // Fall back to DTO-only; server will request upload in play phase.
+                                PacketByteBuf responseBuf = PacketByteBufs.create();
+                                responseBuf.writeNbt(selected.toNbt());
+                                future.complete(responseBuf);
+                            }
+                        }) {
+                            @Override
+                            public void close() {
+                                // Ensure the future always completes so login doesn't hang.
+                                future.complete(null);
+                                super.close();
+                            }
+                        };
+                        client.setScreen(picker);
+                    });
+
+                    return future;
+                });
 
         // ── Play-phase handlers ───────────────────────────────────────────────
 

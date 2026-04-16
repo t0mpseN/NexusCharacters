@@ -87,12 +87,19 @@ public class PlayerManagerMixin {
         boolean isHost = player.server.isHost(player.getGameProfile());
         boolean isLanGuest = !isDedicated && !isHost;
 
-        // In 1.20.1 there is no config phase. Dedicated/LAN-guest players join first, then
-        // select a character via play-phase packet. At tracker-creation time no character is
-        // selected yet for these players — skip silently and let the play-phase handler apply
-        // character data after the player has made their selection.
-        if (isDedicated || isLanGuest) {
-            NexusCharacters.LOGGER.debug("[Nexus] prepareCharacterData: dedicated/LAN-guest join for {} — character selection pending.", player.getName().getString());
+        if (isLanGuest) {
+            // LAN guests select character via play-phase packet — skip here.
+            NexusCharacters.LOGGER.debug("[Nexus] prepareCharacterData: LAN-guest join for {} — character selection pending.", player.getName().getString());
+            return;
+        }
+
+        if (isDedicated) {
+            // On dedicated servers, the login-phase query stages vault files before this point.
+            // pendingCharacters holds the selection; if present, the vault is already on disk.
+            // Nothing to do here — the JOIN handler will call applyCharacterData after login.
+            // If pendingCharacters is empty (first-time join / login query not answered),
+            // the play-phase fallback handles it.
+            NexusCharacters.LOGGER.debug("[Nexus] prepareCharacterData: dedicated join for {} — handled by login-phase.", player.getName().getString());
             return;
         }
 

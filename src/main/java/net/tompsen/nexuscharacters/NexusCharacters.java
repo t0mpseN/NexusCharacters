@@ -115,11 +115,25 @@ public class NexusCharacters implements ModInitializer {
 			LOGGER.info("[Nexus] JOIN event for {} (uuid={}) dedicated={}", player.getName().getString(), uuid, server.isDedicated());
 
 			boolean isLanGuest = !server.isDedicated() && !server.isHost(player.getGameProfile());
-			if (server.isDedicated() || isLanGuest) {
-				// Dedicated server OR LAN non-host: prompt client to select a character via
-				// play-phase packet (config-phase networking is not available in 1.20.1).
-				LOGGER.info("[Nexus] JOIN: sending CharacterSelectRequest to {} (dedicated={}, lanGuest={}).",
-						player.getName().getString(), server.isDedicated(), isLanGuest);
+			if (server.isDedicated()) {
+				// Dedicated server: check if character was already selected during the login query.
+				CharacterDto loginChar = pendingCharacters.remove(uuid);
+				if (loginChar != null) {
+					// Login-phase succeeded: vault was staged before player data loaded.
+					// The player entity already has the correct data (loadPlayerData read the
+					// staged files). Just apply our metadata (trackers, position, skin).
+					setSelectedCharacter(player, loginChar);
+					LOGGER.info("[Nexus] JOIN: login-phase vault staged for {} — applying character data.", player.getName().getString());
+					server.execute(() -> CharacterDataManager.applyCharacterData(player));
+				} else {
+					// Login-phase was skipped (client didn't answer query, or vanilla client).
+					// Fall back to play-phase character selection.
+					LOGGER.info("[Nexus] JOIN: no login-phase character for {} — sending play-phase CharacterSelectRequest.", player.getName().getString());
+					server.execute(() -> NexusCharactersNetwork.sendCharacterSelectRequest(player));
+				}
+			} else if (isLanGuest) {
+				// LAN non-host: prompt client to select a character via play-phase packet.
+				LOGGER.info("[Nexus] JOIN: LAN guest {} — sending play-phase CharacterSelectRequest.", player.getName().getString());
 				server.execute(() -> NexusCharactersNetwork.sendCharacterSelectRequest(player));
 			} else {
 				// Singleplayer / LAN host — character was already chosen from the title screen.
