@@ -29,6 +29,11 @@ public class CharacterUiHelper {
     public static final Identifier EDIT_ICON = new Identifier("nexuscharacters", "textures/gui/edit.png");
     public static final Identifier HEART_ICON = new Identifier("nexuscharacters", "textures/gui/heart.png");
 
+    /** Items whose drawItem call already failed this session — warn only once per item to avoid log spam. */
+    private static final java.util.Set<String> warnedDrawItems = java.util.Collections.newSetFromMap(new java.util.concurrent.ConcurrentHashMap<>());
+    /** Items whose drawItemInSlot call already failed this session — warn only once per item. */
+    private static final java.util.Set<String> warnedDrawItemInSlots = java.util.Collections.newSetFromMap(new java.util.concurrent.ConcurrentHashMap<>());
+
     public static boolean autoRotate = false;
     public static boolean showEquipment = true;
 
@@ -112,32 +117,110 @@ public class CharacterUiHelper {
     /**
      * Guards against mods whose items call client.player.getInventory() (or similar)
      * inside hasGlint() / getTooltip(), which crashes when player is null (pre-join screens).
+     * Returns {@code true} if the render crashed (item could not be displayed).
      */
-    public static void drawSafeItem(DrawContext ctx, net.minecraft.item.ItemStack stack, int x, int y) {
-        if (stack.isEmpty()) return;
-        ctx.getMatrices().push();
+    public static boolean drawSafeItem(DrawContext ctx, net.minecraft.item.ItemStack stack, int x, int y) {
+        if (stack.isEmpty()) return false;
+        net.minecraft.client.util.math.MatrixStack matrices = ctx.getMatrices();
+        int depthBefore = matrixDepth(matrices);
         try {
             ctx.drawItem(stack, x, y);
+            return false;
         } catch (Throwable t) {
-            NexusCharacters.LOGGER.warn("[Nexus] drawItem failed for {}: {}", stack.getItem(), t.toString());
+            String key = net.minecraft.registry.Registries.ITEM.getId(stack.getItem()).toString();
+            if (warnedDrawItems.add(key)) {
+                NexusCharacters.LOGGER.warn("[Nexus] drawItem failed for {} (suppressing further): {}", key, t.toString());
+            }
+            // Rebalance any matrix pushes left open by the crashing renderer
+            int depthAfter = matrixDepth(matrices);
+            for (int i = depthAfter; i > depthBefore; i--) matrices.pop();
+            return true;
         } finally {
-            ctx.getMatrices().pop();
+            RenderSystem.disableScissor();
+            RenderSystem.setShaderColor(1f, 1f, 1f, 1f);
             RenderSystem.enableDepthTest();
             RenderSystem.enableBlend();
             RenderSystem.defaultBlendFunc();
         }
     }
 
-    public static void drawSafeItemInSlot(DrawContext ctx, TextRenderer tr, net.minecraft.item.ItemStack stack, int x, int y) {
-        if (stack.isEmpty()) return;
-        ctx.getMatrices().push();
+    /**
+     * Draws item stack decorations (count, durability bar), returning {@code true} if the render crashed.
+     */
+    public static boolean drawSafeItemInSlot(DrawContext ctx, TextRenderer tr, net.minecraft.item.ItemStack stack, int x, int y) {
+        if (stack.isEmpty()) return false;
+        net.minecraft.client.util.math.MatrixStack matrices = ctx.getMatrices();
+        int depthBefore = matrixDepth(matrices);
         try {
             ctx.drawItemInSlot(tr, stack, x, y);
+            return false;
         } catch (Throwable t) {
-            NexusCharacters.LOGGER.warn("[Nexus] drawItemInSlot failed for {}: {}", stack.getItem(), t.toString());
+            String key = net.minecraft.registry.Registries.ITEM.getId(stack.getItem()).toString();
+            if (warnedDrawItemInSlots.add(key)) {
+                NexusCharacters.LOGGER.warn("[Nexus] drawItemInSlot failed for {} (suppressing further): {}", key, t.toString());
+            }
+            int depthAfter = matrixDepth(matrices);
+            for (int i = depthAfter; i > depthBefore; i--) matrices.pop();
+            return true;
         } finally {
-            ctx.getMatrices().pop();
+            RenderSystem.disableScissor();
+            RenderSystem.setShaderColor(1f, 1f, 1f, 1f);
+            RenderSystem.enableDepthTest();
+            RenderSystem.enableBlend();
+            RenderSystem.defaultBlendFunc();
         }
+    }
+
+    /**
+     * Draws a compact warning banner directly above the right panel when one or more
+     * inventory items could not be rendered due to a mod crash.
+     *
+     * @param count   number of items that failed to render
+     * @param panelX  left edge of the right panel (px)
+     * @param panelW  width of the right panel (pw)
+     * @param bottomY top edge of the right panel — banner is drawn upward from here
+     */
+    public static void drawItemRenderWarningBanner(DrawContext ctx, TextRenderer tr, int count, int panelX, int panelW, int bottomY) {
+        String msg = count == 1
+                ? "1 item could not be displayed (requires an active world)"
+                : count + " items could not be displayed (require an active world)";
+        Text text = Text.literal(msg).setStyle(net.minecraft.text.Style.EMPTY.withFont(CUSTOM_FONT));
+        List<net.minecraft.text.OrderedText> lines = tr.wrapLines(text, panelW - 16);
+
+        int lineH = 9;
+        int h = 4 + lines.size() * lineH + 3;
+        int y = bottomY - h - 4;  // 4px gap above the panel
+
+        // Dark red background with red top accent line
+        ctx.fill(panelX, y, panelX + panelW, y + h, 0xFF1A0000);
+        ctx.fill(panelX, y, panelX + panelW, y + 2, 0xFFCC2222);
+
+        int lineY = y + 4;
+        for (net.minecraft.text.OrderedText line : lines) {
+            ctx.drawText(tr, line, panelX + 9, lineY + 1, 0xFF000000, false);
+            ctx.drawText(tr, line, panelX + 8, lineY, 0xFFFF6666, false);
+            lineY += lineH;
+        }
+    }
+
+    private static java.lang.reflect.Field matrixStackEntriesField;
+    private static int matrixDepth(net.minecraft.client.util.math.MatrixStack stack) {
+        try {
+            if (matrixStackEntriesField == null) {
+                for (java.lang.reflect.Field f : net.minecraft.client.util.math.MatrixStack.class.getDeclaredFields()) {
+                    if (java.util.Deque.class.isAssignableFrom(f.getType()) || java.util.List.class.isAssignableFrom(f.getType())) {
+                        f.setAccessible(true);
+                        matrixStackEntriesField = f;
+                        break;
+                    }
+                }
+            }
+            if (matrixStackEntriesField != null) {
+                Object deque = matrixStackEntriesField.get(stack);
+                if (deque instanceof java.util.Collection<?> c) return c.size();
+            }
+        } catch (Throwable ignored) {}
+        return 0;
     }
 
     /**

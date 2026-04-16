@@ -36,6 +36,11 @@ public class VaultManager {
         return name.endsWith(".old") || name.endsWith(".bak") || name.endsWith(".tmp");
     }
 
+    /** Zero-byte files are uninitialized placeholders that crash mods like Biolith when restored. */
+    private static boolean isEmptyFile(Path file) {
+        try { return Files.size(file) == 0; } catch (IOException ignored) { return false; }
+    }
+
     private static final Path VAULTS_DIR =
             FabricLoader.getInstance().getGameDir().resolve("nexuscharacters/vaults");
 
@@ -313,6 +318,7 @@ public class VaultManager {
             try (Stream<Path> walk = Files.walk(dir)) {
                 walk.filter(Files::isRegularFile)
                         .filter(f -> !isBackupFile(f))
+                        .filter(f -> !isEmptyFile(f))
                         .filter(f -> f.toString().replace("\\", "/").contains(uuidStr))
                         .forEach(file -> {
                             String rel = worldDir.relativize(file).toString().replace("\\", "/");
@@ -332,11 +338,14 @@ public class VaultManager {
         // data/ directory: save ALL files without UUID filtering.
         // Mods like Sophisticated Backpacks store per-item inventories here keyed by
         // item UUID, not player UUID — so the player UUID filter would miss them entirely.
+        // Zero-byte files are skipped: they are uninitialized placeholders (e.g. biolith_overworld_state.dat)
+        // that crash mods like Biolith when restored via PersistentStateManager.
         Path dataDir = worldDir.resolve("data");
         if (Files.isDirectory(dataDir)) {
             try (Stream<Path> walk = Files.walk(dataDir)) {
                 walk.filter(Files::isRegularFile)
                         .filter(f -> !isBackupFile(f))
+                        .filter(f -> !isEmptyFile(f))
                         .forEach(file -> {
                             String rel = worldDir.relativize(file).toString().replace("\\", "/");
                             Path target = vaultDir.resolve(rel);
@@ -360,13 +369,44 @@ public class VaultManager {
         Map<String, byte[]> vaultFiles = new LinkedHashMap<>();
         List<Path> oldFormat = new ArrayList<>();
         List<Path> newFormat = new ArrayList<>();
+        // Track top-level vault dirs whose files are NOT player-UUID-keyed.
+        // These directories store data under mod-internal keys (e.g. Cobblemon's pokemon/).
+        // Stale files from a previous character must be wiped from the world dir before
+        // writing, because clearWorldFiles() only removes files that contain a UUID in their
+        // path and will miss them entirely.
+        Set<String> nonUuidModDirs = new LinkedHashSet<>();
+        Set<String> standardDirs = Set.of("playerdata", "advancements", "stats", "data", "world_positions.json");
+
         try (Stream<Path> walk = Files.walk(vaultDir)) {
             walk.filter(Files::isRegularFile).forEach(f -> {
                 String rel = vaultDir.relativize(f).toString().replace("\\", "/");
                 if (rel.contains(SHARD_TOKEN)) newFormat.add(f);
                 else oldFormat.add(f);
+
+                // Collect top-level dir names whose vault paths contain no player token
+                // (meaning they're not keyed by player UUID and won't be cleared by clearWorldFiles).
+                String topLevel = rel.contains("/") ? rel.substring(0, rel.indexOf('/')) : "";
+                if (!topLevel.isEmpty()
+                        && !standardDirs.contains(topLevel)
+                        && !rel.contains(PLAYER_TOKEN)
+                        && !rel.contains(SHARD_TOKEN)) {
+                    nonUuidModDirs.add(topLevel);
+                }
             });
         } catch (IOException ignored) { return; }
+
+        // Wipe stale non-UUID mod directories in the world before writing vault contents.
+        // This prevents data from a previous character bleeding into the newly loaded one.
+        for (String dirName : nonUuidModDirs) {
+            Path worldModDir = worldDir.resolve(dirName);
+            if (Files.isDirectory(worldModDir)) {
+                try (Stream<Path> wipe = Files.walk(worldModDir)) {
+                    wipe.sorted(Comparator.reverseOrder()).forEach(p -> {
+                        try { Files.delete(p); } catch (IOException ignored) {}
+                    });
+                } catch (IOException ignored) {}
+            }
+        }
 
         for (List<Path> batch : List.of(oldFormat, newFormat)) {
             for (Path file : batch) {
@@ -513,23 +553,78 @@ public class VaultManager {
      * currently loaded mod. These represent mods whose data was saved with this
      * character but may not be installed in the current instance.
      * Results are cached until the vault cache is invalidated.
+     *
+     * <p>Matching is intentionally lenient: a vault directory is considered "covered"
+     * by a loaded mod if the mod ID or normalized display name matches the directory
+     * name (exact, prefix, suffix, or substring), requiring at least 4 characters for
+     * fuzzy checks to avoid false positives from very short mod IDs.
      */
     public static List<String> detectPotentiallyMissingMods(UUID characterId) {
         return MISSING_MODS_CACHE.computeIfAbsent(characterId, id -> {
             Path vaultDir = getVaultDir(id);
             if (!Files.isDirectory(vaultDir)) return List.of();
-            Set<String> standardDirs = Set.of("playerdata", "advancements", "stats", "data");
+
+            Set<String> standardDirs = Set.of("playerdata", "advancements", "stats", "data", "world_positions.json");
+
+            // Build a set of mod ID + display-name tokens for fuzzy matching.
+            Set<String> loadedModIds = buildLoadedModTokens();
+
             List<String> missing = new ArrayList<>();
             try (Stream<Path> top = Files.list(vaultDir)) {
                 top.filter(Files::isDirectory)
                    .map(p -> p.getFileName().toString())
                    .filter(n -> !standardDirs.contains(n))
-                   .forEach(n -> {
-                       if (!FabricLoader.getInstance().isModLoaded(n)) missing.add(n);
+                   .forEach(dirName -> {
+                       if (!isCoveredByLoadedMod(dirName.toLowerCase(), loadedModIds)) {
+                           missing.add(dirName);
+                       }
                    });
             } catch (IOException ignored) {}
             return List.copyOf(missing);
         });
+    }
+
+    /**
+     * Returns true if {@code dirName} is plausibly owned by one of the loaded mods.
+     * Four matching strategies are tried, requiring at least 4 characters to match to
+     * avoid false positives from very short mod IDs:
+     * <ol>
+     *   <li><b>Exact match</b>: mod {@code ironchests} → dir {@code ironchests/}.</li>
+     *   <li><b>Dir starts with mod ID</b>: mod {@code cobblemon} → dir {@code cobblemonplayerdata/}.</li>
+     *   <li><b>Mod ID starts with dir name</b>: dir {@code nether/} → mod {@code netherintegration}.</li>
+     *   <li><b>Mod display name contains dir name</b>: mod display name "Cobblemon" contains "pokemon"
+     *       when normalised — covers cases where the dir is a generic noun the mod is named after.</li>
+     * </ol>
+     */
+    private static boolean isCoveredByLoadedMod(String dirNameLower, Set<String> loadedModIds) {
+        // Minimum length for prefix/substring checks — prevents trivial overlaps
+        // (e.g. dir "a" matching mod "a-lot-of-mods"). Exact matching always applies.
+        final int MIN = 4;
+        for (String modId : loadedModIds) {
+            if (modId.equals(dirNameLower)) return true;  // exact — always checked
+            if (dirNameLower.length() < MIN) continue;    // skip fuzzy checks for very short names
+            if (dirNameLower.startsWith(modId) && modId.length() >= MIN) return true;
+            if (modId.startsWith(dirNameLower)) return true;
+            if (modId.contains(dirNameLower)) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Builds the set used by {@link #isCoveredByLoadedMod}: mod IDs plus normalised
+     * display names (lowercased, spaces/hyphens stripped to catch "Cobblemon" → "cobblemon").
+     */
+    private static Set<String> buildLoadedModTokens() {
+        Set<String> tokens = new HashSet<>();
+        for (var mod : FabricLoader.getInstance().getAllMods()) {
+            String id = mod.getMetadata().getId().toLowerCase();
+            tokens.add(id);
+            // Also add the display name normalised: lower-case, strip spaces/hyphens/underscores
+            String name = mod.getMetadata().getName().toLowerCase()
+                    .replaceAll("[\\s\\-_]+", "");
+            if (!name.isEmpty()) tokens.add(name);
+        }
+        return tokens;
     }
 
     public static byte[] serializePlayerNbt(net.minecraft.server.network.ServerPlayerEntity player) throws IOException {
@@ -574,12 +669,15 @@ public class VaultManager {
         } catch (IOException ignored) {}
         Map<String, byte[]> result = new java.util.LinkedHashMap<>(collectFromDirs(worldDir, playerUuid, modDirs));
 
-        // data/ directory: collect ALL files without UUID filtering
+        // data/ directory: collect ALL files without UUID filtering.
+        // Zero-byte files are skipped: they are uninitialized placeholders that crash mods
+        // like Biolith when restored (arraycopy: length -1 in PersistentStateManager).
         Path dataDir = worldDir.resolve("data");
         if (Files.isDirectory(dataDir)) {
             try (Stream<Path> walk = Files.walk(dataDir)) {
                 walk.filter(Files::isRegularFile)
                         .filter(f -> !isBackupFile(f))
+                        .filter(f -> !isEmptyFile(f))
                         .forEach(file -> {
                             String rel = worldDir.relativize(file).toString().replace("\\", "/");
                             try {
@@ -600,6 +698,7 @@ public class VaultManager {
             try (Stream<Path> walk = Files.walk(dir)) {
                 walk.filter(Files::isRegularFile)
                         .filter(f -> !isBackupFile(f))
+                        .filter(f -> !isEmptyFile(f))
                         .filter(f -> f.toString().replace("\\", "/").contains(uuidStr))
                         .forEach(file -> {
                             String rel = worldDir.relativize(file).toString().replace("\\", "/");
@@ -653,7 +752,8 @@ public class VaultManager {
             if (Files.exists(vaultDir)) {
                 try (Stream<Path> walk = Files.walk(vaultDir)) {
                     for (Path file : (Iterable<Path>) walk.filter(Files::isRegularFile)
-                                                          .filter(f -> !isBackupFile(f))::iterator) {
+                                                          .filter(f -> !isBackupFile(f))
+                                                          .filter(f -> !isEmptyFile(f))::iterator) {
                         String entry = vaultDir.relativize(file).toString().replace("\\", "/");
                         zos.putNextEntry(new ZipEntry(entry));
                         Files.copy(file, zos);
@@ -688,9 +788,12 @@ public class VaultManager {
                 if (UUID_PAT.matcher(name).find()) { zis.closeEntry(); continue; }
                 // Never overwrite server-authoritative position data with client data
                 if (preserveServerFiles && name.equals("world_positions.json")) { zis.closeEntry(); continue; }
-                Files.createDirectories(target.getParent());
-                Files.write(target, zis.readAllBytes());
+                byte[] data = zis.readAllBytes();
                 zis.closeEntry();
+                // Skip zero-byte entries: uninitialized placeholders that crash mods like Biolith
+                if (data.length == 0) continue;
+                Files.createDirectories(target.getParent());
+                Files.write(target, data);
             }
         }
         invalidateCache(characterId);

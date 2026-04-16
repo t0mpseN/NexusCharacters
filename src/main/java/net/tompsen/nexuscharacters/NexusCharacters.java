@@ -30,6 +30,14 @@ public class NexusCharacters implements ModInitializer {
 	/** Players currently being respawned by NexusCharacters — skip vault save in afterRemove. */
 	public static final java.util.Set<UUID> respawningPlayers = java.util.Collections.newSetFromMap(new ConcurrentHashMap<>());
 	/**
+	 * Players whose vault upload is currently in-flight from client to server.
+	 * The periodic vault sync tick must NOT send stale server-side data to these players
+	 * while the upload is pending, or the client vault will be overwritten with old data.
+	 * Added when we send VaultReceiveReadyPayload; removed when installVaultAndRespawn completes.
+	 */
+	public static final java.util.Set<UUID> pendingVaultUpload = java.util.Collections.newSetFromMap(new ConcurrentHashMap<>());
+
+	/**
 	 * Characters selected during the configuration phase (before the player entity exists).
 	 * Consumed on ServerPlayConnectionEvents.JOIN to set selectedCharacters.
 	 */
@@ -136,6 +144,7 @@ public class NexusCharacters implements ModInitializer {
 					player.getName().getString(), disconnectUuid);
 
 			pendingCharacters.remove(disconnectUuid);
+			pendingVaultUpload.remove(disconnectUuid);
 
 			CharacterDto current = NexusCharacters.getSelectedCharacter(player);
 			if (current == null) return;
@@ -225,6 +234,9 @@ public class NexusCharacters implements ModInitializer {
 				CharacterDto character = getSelectedCharacter(player);
 				if (character == null) continue;
 				if (!ServerPlayNetworking.canSend(player, VaultSyncPayload.ID)) continue;
+				// Skip sync while the client is uploading their vault — sending stale server data
+				// back to the client during the upload window would overwrite the correct client vault.
+				if (pendingVaultUpload.contains(player.getUuid())) continue;
 
 				final UUID playerUuid = player.getUuid();
 				final UUID charId = character.id();

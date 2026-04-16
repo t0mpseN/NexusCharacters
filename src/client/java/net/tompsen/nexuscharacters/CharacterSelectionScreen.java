@@ -172,7 +172,15 @@ public class CharacterSelectionScreen extends Screen {
         if (hoveredIndex >= 0 && hoveredIndex < characters.size()) {
             CharacterDto activeChar = characters.get(hoveredIndex);
             drawLeftPanel(ctx, activeChar, cx, cy, ch, smX, smY);
+            // Flush any pending vertex consumers that entity rendering may have left dirty,
+            // then fully reset GL state so scissor/color contamination from mod renderers
+            // does not bleed into the right panel.
             ctx.draw();
+            com.mojang.blaze3d.systems.RenderSystem.disableScissor();
+            com.mojang.blaze3d.systems.RenderSystem.setShaderColor(1f, 1f, 1f, 1f);
+            com.mojang.blaze3d.systems.RenderSystem.enableDepthTest();
+            com.mojang.blaze3d.systems.RenderSystem.enableBlend();
+            com.mojang.blaze3d.systems.RenderSystem.defaultBlendFunc();
             tooltipItem = drawRightPanel(ctx, textRenderer, activeChar, cx + cwValue, cy, ch, smX, smY);
             if (equipmentToggle != null) equipmentToggle.visible = true;
             if (rotateToggle != null) rotateToggle.visible = true;
@@ -321,9 +329,25 @@ public class CharacterSelectionScreen extends Screen {
                 NexusCharacters.LOGGER.warn("[Nexus] drawEntity failed: {}", t.toString());
                 int stackDepthAfter = countMatrixDepth(matrices);
                 for (int i = stackDepthAfter; i > stackDepthBefore; i--) matrices.pop();
+                // Flush any pending draw calls from the crashed render pass, then restore GL state
+                try { ctx.draw(); } catch (Throwable ignored) {}
+                com.mojang.blaze3d.systems.RenderSystem.disableScissor();
                 com.mojang.blaze3d.systems.RenderSystem.enableDepthTest();
                 com.mojang.blaze3d.systems.RenderSystem.enableBlend();
                 com.mojang.blaze3d.systems.RenderSystem.defaultBlendFunc();
+                com.mojang.blaze3d.systems.RenderSystem.setShaderColor(1f, 1f, 1f, 1f);
+                // The crash may have escaped SafeFeatureRendererWrapper (e.g. thrown from
+                // LivingEntityRenderer itself before reaching a layer, or from a layer that
+                // throws Error rather than Exception).  Signal it directly so the auto-disable
+                // logic below can still react.
+                SafeFeatureRendererWrapper.crashedEntityUuids.add(c.id());
+            }
+
+            // If any layer (or drawEntity itself) crashed during this render, auto-disable
+            // equipment for this character and reflect that on the toggle button.
+            if (DummyPlayerManager.checkAndAutoDisableEquipment(c)) {
+                CharacterUiHelper.showEquipment = false;
+                lastShowEquipment = false;
             }
         }
     }
@@ -354,13 +378,15 @@ public class CharacterSelectionScreen extends Screen {
             }
         }
 
+        int failedItems = 0;
+
         int hotbarY = py + 40;
         ctx.drawTexture(new Identifier("nexuscharacters", "textures/gui/pickaxe-placeholder.png"), startX - 18, hotbarY + 2, 0, 0, 16, 16, 16, 16);
         for (int i = 0; i < 9; i++) {
             int sx = startX + i * (slotSize + gap);
             CharacterUiHelper.drawMinecraftRect(ctx, sx, hotbarY, slotSize, slotSize);
             if (!invItems[i].isEmpty()) {
-                CharacterUiHelper.drawSafeItem(ctx, invItems[i], sx + 2, hotbarY + 2);
+                if (CharacterUiHelper.drawSafeItem(ctx, invItems[i], sx + 2, hotbarY + 2)) failedItems++;
                 CharacterUiHelper.drawSafeItemInSlot(ctx, tr, invItems[i], sx + 2, hotbarY + 2);
                 if (mouseX >= sx && mouseX <= sx + slotSize && mouseY >= hotbarY && mouseY <= hotbarY + slotSize) hoveredItem = invItems[i];
             }
@@ -381,7 +407,7 @@ public class CharacterSelectionScreen extends Screen {
 
             int itemSlot = i + 9;
             if (!invItems[itemSlot].isEmpty()) {
-                CharacterUiHelper.drawSafeItem(ctx, invItems[itemSlot], sx + 2, sy + 2);
+                if (CharacterUiHelper.drawSafeItem(ctx, invItems[itemSlot], sx + 2, sy + 2)) failedItems++;
                 CharacterUiHelper.drawSafeItemInSlot(ctx, tr, invItems[itemSlot], sx + 2, sy + 2);
                 if (mouseX >= sx && mouseX <= sx + slotSize && mouseY >= sy && mouseY <= sy + slotSize) hoveredItem = invItems[itemSlot];
             }
@@ -396,10 +422,14 @@ public class CharacterSelectionScreen extends Screen {
             if (invItems[armorSlot].isEmpty()) {
                 ctx.drawTexture(CharacterUiHelper.ARMOR_ICONS[i], armorX + 2, sy + 2, 0, 0, 16, 16, 16, 16);
             } else {
-                CharacterUiHelper.drawSafeItem(ctx, invItems[armorSlot], armorX + 2, sy + 2);
+                if (CharacterUiHelper.drawSafeItem(ctx, invItems[armorSlot], armorX + 2, sy + 2)) failedItems++;
                 CharacterUiHelper.drawSafeItemInSlot(ctx, tr, invItems[armorSlot], armorX + 2, sy + 2);
                 if (mouseX >= armorX && mouseX <= armorX + slotSize && mouseY >= sy && mouseY <= sy + slotSize) hoveredItem = invItems[armorSlot];
             }
+        }
+
+        if (failedItems > 0) {
+            CharacterUiHelper.drawItemRenderWarningBanner(ctx, tr, failedItems, px, pw, py);
         }
 
         int divY = invY + 3 * (slotSize + gap) + 8;

@@ -177,8 +177,14 @@ public class CharacterListScreen extends Screen {
             CharacterDto activeChar = characters.get(activeIndex);
             drawLeftPanel(ctx, activeChar, cx, cy, ch, smX, smY, mouseX, mouseY);
             // Flush any pending vertex consumers that entity rendering may have left dirty,
-            // so the right panel starts with a clean render state.
+            // then fully reset GL state so scissor/color contamination from mod renderers
+            // does not bleed into the right panel.
             ctx.draw();
+            com.mojang.blaze3d.systems.RenderSystem.disableScissor();
+            com.mojang.blaze3d.systems.RenderSystem.setShaderColor(1f, 1f, 1f, 1f);
+            com.mojang.blaze3d.systems.RenderSystem.enableDepthTest();
+            com.mojang.blaze3d.systems.RenderSystem.enableBlend();
+            com.mojang.blaze3d.systems.RenderSystem.defaultBlendFunc();
             tooltipItem = drawRightPanel(ctx, textRenderer, activeChar, cx + cwValue, cy, ch, smX, smY);
             if (equipmentToggle != null) equipmentToggle.visible = true;
             if (rotateToggle != null) rotateToggle.visible = true;
@@ -337,7 +343,7 @@ public class CharacterListScreen extends Screen {
             // Snapshot the matrix stack depth so we can rebalance it if drawEntity crashes
             // mid-render (mod armor renderer does push() but never pop() on exception).
             net.minecraft.client.util.math.MatrixStack matrices = ctx.getMatrices();
-            int stackDepthBefore = matrices.peek() != null ? countMatrixDepth(matrices) : 0;
+            int stackDepthBefore = countMatrixDepth(matrices);
             try {
                 InventoryScreen.drawEntity(ctx, drawX, drawY, entitySize, lookAtX, lookAtY, dummy);
             } catch (Throwable t) {
@@ -345,10 +351,24 @@ public class CharacterListScreen extends Screen {
                 // Rebalance any push()es left open by the crashed renderer
                 int stackDepthAfter = countMatrixDepth(matrices);
                 for (int i = stackDepthAfter; i > stackDepthBefore; i--) matrices.pop();
-                // Restore GL state
+                // Flush any pending draw calls from the crashed render pass, then restore GL state
+                try { ctx.draw(); } catch (Throwable ignored) {}
+                com.mojang.blaze3d.systems.RenderSystem.disableScissor();
                 com.mojang.blaze3d.systems.RenderSystem.enableDepthTest();
                 com.mojang.blaze3d.systems.RenderSystem.enableBlend();
                 com.mojang.blaze3d.systems.RenderSystem.defaultBlendFunc();
+                com.mojang.blaze3d.systems.RenderSystem.setShaderColor(1f, 1f, 1f, 1f);
+                // The crash may have escaped SafeFeatureRendererWrapper (e.g. thrown from
+                // LivingEntityRenderer itself, or from a layer that throws Error not Exception).
+                // Signal it directly so the auto-disable logic below can still react.
+                SafeFeatureRendererWrapper.crashedEntityUuids.add(c.id());
+            }
+
+            // If any layer (or drawEntity itself) crashed during this render, auto-disable
+            // equipment for this character and reflect that on the toggle button.
+            if (DummyPlayerManager.checkAndAutoDisableEquipment(c)) {
+                CharacterUiHelper.showEquipment = false;
+                lastShowEquipment = false;
             }
         }
     }
@@ -379,13 +399,15 @@ public class CharacterListScreen extends Screen {
             }
         }
 
+        int failedItems = 0;
+
         int hotbarY = py + 40;
         ctx.drawTexture(new Identifier("nexuscharacters", "textures/gui/pickaxe-placeholder.png"), startX - 18, hotbarY + 2, 0, 0, 16, 16, 16, 16);
         for (int i = 0; i < 9; i++) {
             int sx = startX + i * (slotSize + gap);
             CharacterUiHelper.drawMinecraftRect(ctx, sx, hotbarY, slotSize, slotSize);
             if (!invItems[i].isEmpty()) {
-                CharacterUiHelper.drawSafeItem(ctx, invItems[i], sx + 2, hotbarY + 2);
+                if (CharacterUiHelper.drawSafeItem(ctx, invItems[i], sx + 2, hotbarY + 2)) failedItems++;
                 CharacterUiHelper.drawSafeItemInSlot(ctx, tr, invItems[i], sx + 2, hotbarY + 2);
                 if (mouseX >= sx && mouseX <= sx + slotSize && mouseY >= hotbarY && mouseY <= hotbarY + slotSize) hoveredItem = invItems[i];
             }
@@ -406,7 +428,7 @@ public class CharacterListScreen extends Screen {
 
             int itemSlot = i + 9;
             if (!invItems[itemSlot].isEmpty()) {
-                CharacterUiHelper.drawSafeItem(ctx, invItems[itemSlot], sx + 2, sy + 2);
+                if (CharacterUiHelper.drawSafeItem(ctx, invItems[itemSlot], sx + 2, sy + 2)) failedItems++;
                 CharacterUiHelper.drawSafeItemInSlot(ctx, tr, invItems[itemSlot], sx + 2, sy + 2);
                 if (mouseX >= sx && mouseX <= sx + slotSize && mouseY >= sy && mouseY <= sy + slotSize) hoveredItem = invItems[itemSlot];
             }
@@ -421,10 +443,14 @@ public class CharacterListScreen extends Screen {
             if (invItems[armorSlot].isEmpty()) {
                 ctx.drawTexture(CharacterUiHelper.ARMOR_ICONS[i], armorX + 2, sy + 2, 0, 0, 16, 16, 16, 16);
             } else {
-                CharacterUiHelper.drawSafeItem(ctx, invItems[armorSlot], armorX + 2, sy + 2);
+                if (CharacterUiHelper.drawSafeItem(ctx, invItems[armorSlot], armorX + 2, sy + 2)) failedItems++;
                 CharacterUiHelper.drawSafeItemInSlot(ctx, tr, invItems[armorSlot], armorX + 2, sy + 2);
                 if (mouseX >= armorX && mouseX <= armorX + slotSize && mouseY >= sy && mouseY <= sy + slotSize) hoveredItem = invItems[armorSlot];
             }
+        }
+
+        if (failedItems > 0) {
+            CharacterUiHelper.drawItemRenderWarningBanner(ctx, tr, failedItems, px, pw, py);
         }
 
         int divY = invY + 3 * (slotSize + gap) + 8;

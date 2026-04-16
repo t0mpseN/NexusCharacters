@@ -6,7 +6,6 @@ import net.minecraft.server.PlayerManager;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.util.WorldSavePath;
 import net.tompsen.nexuscharacters.CharacterDataManager;
-import net.tompsen.nexuscharacters.CharacterDto;
 import net.tompsen.nexuscharacters.NexusCharacters;
 import net.tompsen.nexuscharacters.VaultManager;
 import org.spongepowered.asm.mixin.Mixin;
@@ -116,6 +115,9 @@ public class PlayerManagerMixin {
             // before Minecraft's PlayerManager reads player.dat, advancements, stats.
             VaultManager.clearWorldFiles(worldDir, player.getUuid());
             VaultManager.copyVaultToWorld(character.id(), worldDir, player.getUuid());
+            // Evict any cached PersistentState objects (e.g. puffish_skills, puffish_attributes)
+            // from all server worlds so they are re-read from the just-restored vault files.
+            CharacterDataManager.evictPersistentStateCache(player.server);
             NexusCharacters.LOGGER.info("[Nexus] Vault installed for singleplayer/host join: {}", character.name());
         });
     }

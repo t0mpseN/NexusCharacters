@@ -15,12 +15,23 @@ import net.minecraft.entity.LivingEntity;
  * entities, while layers that crash due to server-only APIs (PlayerLookup.tracking,
  * attachment syncing from Supplementaries, Aether, Accessories) are skipped silently.
  *
+ * When a layer crashes, the entity's UUID is recorded in {@link #crashedEntityUuids}
+ * so that the UI can automatically disable equipment rendering for that character.
+ *
  * Must live outside the mixin package — Mixin forbids direct instantiation of classes
  * in packages owned by a mixin config (IllegalClassLoadError).
  */
 @SuppressWarnings({"unchecked", "rawtypes"})
 public final class SafeFeatureRendererWrapper<T extends LivingEntity, M extends EntityModel<T>>
         extends FeatureRenderer<T, M> {
+
+    /**
+     * UUIDs of dummy entities whose feature-renderer layer crashed at least once.
+     * Populated during render; consumed by CharacterSelectionScreen to auto-disable
+     * equipment for the affected character.
+     */
+    public static final java.util.Set<java.util.UUID> crashedEntityUuids =
+            java.util.Collections.newSetFromMap(new java.util.concurrent.ConcurrentHashMap<>());
 
     private final FeatureRenderer delegate;
 
@@ -39,8 +50,14 @@ public final class SafeFeatureRendererWrapper<T extends LivingEntity, M extends 
             delegate.render(matrices, vertexConsumers, light, entity,
                     limbAngle, limbDistance, tickDelta, animationProgress,
                     headYaw, headPitch);
-        } catch (Exception ignored) {
+        } catch (Throwable ignored) {
             // Layer uses a server-only API or has missing world state — skip for preview.
+            // Catch Throwable (not just Exception) because mod layers outside a real world
+            // commonly throw Error subclasses (NullPointerError, etc.) rather than checked exceptions.
+            // Record the entity so the UI can auto-disable equipment for this character.
+            if (entity.getUuid() != null) {
+                crashedEntityUuids.add(entity.getUuid());
+            }
         }
     }
 }

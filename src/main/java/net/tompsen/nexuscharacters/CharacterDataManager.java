@@ -189,6 +189,27 @@ public class CharacterDataManager {
                 new PlayerListS2CPacket(EnumSet.of(PlayerListS2CPacket.Action.ADD_PLAYER), List.of(player)));
     }
 
+    /**
+     * Evicts cached PersistentState objects from every server world's PersistentStateManager.
+     * Forces mods that store per-player progress in world-level data files (e.g. puffish_skills,
+     * Prominent) to re-read their data from disk after vault files have been restored.
+     */
+    public static void evictPersistentStateCache(net.minecraft.server.MinecraftServer server) {
+        try {
+            for (net.minecraft.server.world.ServerWorld world : server.getWorlds()) {
+                net.minecraft.world.PersistentStateManager psm = world.getPersistentStateManager();
+                java.util.Map<String, net.minecraft.world.PersistentState> cache =
+                        ((net.tompsen.nexuscharacters.mixin.PersistentStateManagerAccessor) psm).getLoadedStates();
+                int before = cache.size();
+                cache.clear();
+                NexusCharacters.LOGGER.info("[Nexus] Evicted {} PersistentState entries from world {}",
+                        before, world.getRegistryKey().getValue());
+            }
+        } catch (Throwable t) {
+            NexusCharacters.LOGGER.warn("[Nexus] evictPersistentStateCache failed: {}", t.getMessage());
+        }
+    }
+
     public static String getWorldId(ServerPlayerEntity player) {
         String save = player.server.getSaveProperties().getLevelName();
         String host = player.server.isDedicated()

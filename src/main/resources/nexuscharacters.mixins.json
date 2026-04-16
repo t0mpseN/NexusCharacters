@@ -6,7 +6,8 @@
 		"PlayerManagerMixin",
 		"PlayerManagerAccessor",
 		"PlayerEntityMixin",
-		"ServerPlayerEntityMixin"
+		"ServerPlayerEntityMixin",
+		"PersistentStateManagerAccessor"
 	],
 	"injectors": {
 		"defaultRequire": 1

@@ -23,6 +23,42 @@ public class DummyPlayerManager {
     private static final Map<UUID, OtherClientPlayerEntity> DUMMY_CACHE = new HashMap<>();
     private static final Map<UUID, Identifier> SKIN_CACHE = new HashMap<>();
 
+    /**
+     * Character UUIDs for which equipment was automatically disabled because a mod
+     * feature-renderer layer crashed during the first preview render.  Once a UUID
+     * is in this set the equipment toggle stays off for that character for the
+     * lifetime of the screen session.
+     */
+    private static final java.util.Set<UUID> equipmentAutoDisabled =
+            java.util.Collections.newSetFromMap(new java.util.concurrent.ConcurrentHashMap<>());
+
+    /**
+     * Called each frame after drawEntity.  Checks whether any feature-renderer layer
+     * crashed for the given character's dummy entity and, if so, strips its equipment
+     * and records it in {@link #equipmentAutoDisabled} so the toggle stays off.
+     *
+     * @return {@code true} if equipment was just auto-disabled for this character.
+     */
+    public static boolean checkAndAutoDisableEquipment(CharacterDto character) {
+        if (equipmentAutoDisabled.contains(character.id())) return false; // already handled
+        if (!SafeFeatureRendererWrapper.crashedEntityUuids.remove(character.id())) return false;
+
+        // A layer crashed — strip equipment for this character only.
+        OtherClientPlayerEntity dummy = DUMMY_CACHE.get(character.id());
+        if (dummy != null) {
+            for (net.minecraft.entity.EquipmentSlot slot : net.minecraft.entity.EquipmentSlot.values()) {
+                dummy.equipStack(slot, net.minecraft.item.ItemStack.EMPTY);
+            }
+        }
+        equipmentAutoDisabled.add(character.id());
+        return true;
+    }
+
+    /** Returns true if equipment was auto-disabled for this character due to a crash. */
+    public static boolean isEquipmentAutoDisabled(UUID characterId) {
+        return equipmentAutoDisabled.contains(characterId);
+    }
+
     // ── Subclasse que bypassa o getNetworkHandler() ──────────────────────────
     static class DummyClientPlayer extends OtherClientPlayerEntity implements NexusDummyEntity {
         private final UUID characterId;
@@ -114,6 +150,11 @@ public class DummyPlayerManager {
                     // because the dummy world has no real chunk data / map storage.
                     if (slot == selectedSlot && !isWorldDependentItem(stack)) {
                         dummy.equipStack(EquipmentSlot.MAINHAND, stack);
+                        // Trigger the arm-raise / using pose for items that have one
+                        // (bows, crossbows, shields, spyglasses, etc.).
+                        if (triggersUsingPose(stack)) {
+                            dummy.setCurrentHand(net.minecraft.util.Hand.MAIN_HAND);
+                        }
                     }
                 }
             }
@@ -143,6 +184,22 @@ public class DummyPlayerManager {
                 || stack.isOf(net.minecraft.item.Items.COMPASS)
                 || stack.isOf(net.minecraft.item.Items.RECOVERY_COMPASS)
                 || stack.isOf(net.minecraft.item.Items.CLOCK);
+    }
+
+    /**
+     * Returns true for items that produce a visible arm/body pose when "in use"
+     * (bows draw back, crossbows raise, shields block, spyglasses zoom, etc.).
+     * Modded items that implement {@link net.minecraft.item.RangedWeaponItem} or
+     * whose use-action is {@link net.minecraft.item.ItemUsageContext} bow/block
+     * will also benefit automatically via the same vanilla pose logic.
+     */
+    private static boolean triggersUsingPose(ItemStack stack) {
+        net.minecraft.item.Item item = stack.getItem();
+        return item instanceof net.minecraft.item.BowItem
+                || item instanceof net.minecraft.item.CrossbowItem
+                || item instanceof net.minecraft.item.ShieldItem
+                || item instanceof net.minecraft.item.SpyglassItem
+                || item instanceof net.minecraft.item.RangedWeaponItem;
     }
 
     public static Identifier getSkinIdentifier(CharacterDto character) {
@@ -194,8 +251,11 @@ public class DummyPlayerManager {
      */
     public static void applyEquipmentVisibility(boolean showEquipment) {
         if (showEquipment) {
-            // Restore from NBT for every cached dummy
+            // Restore from NBT for every cached dummy, skipping characters whose
+            // equipment was auto-disabled due to a mod layer crash — re-equipping
+            // them would just trigger the crash again on the next frame.
             for (Map.Entry<UUID, OtherClientPlayerEntity> entry : DUMMY_CACHE.entrySet()) {
+                if (equipmentAutoDisabled.contains(entry.getKey())) continue;
                 OtherClientPlayerEntity dummy = entry.getValue();
                 // Find the matching character by id to reload NBT
                 NexusCharacters.DATA_FILE_MANAGER.characterList.stream()
@@ -236,6 +296,9 @@ public class DummyPlayerManager {
                 else if (slot == 150) dummy.equipStack(EquipmentSlot.OFFHAND, stack);
                 if (slot == selectedSlot && !isWorldDependentItem(stack)) {
                     dummy.equipStack(EquipmentSlot.MAINHAND, stack);
+                    if (triggersUsingPose(stack)) {
+                        dummy.setCurrentHand(net.minecraft.util.Hand.MAIN_HAND);
+                    }
                 }
             }
         }
@@ -276,10 +339,14 @@ public class DummyPlayerManager {
     public static void clearCache() {
         DUMMY_CACHE.clear();
         SKIN_CACHE.clear();
+        equipmentAutoDisabled.clear();
+        SafeFeatureRendererWrapper.crashedEntityUuids.clear();
         DummyWorldManager.clear();
     }
 
     public static void invalidateDummies() {
         DUMMY_CACHE.clear();
+        equipmentAutoDisabled.clear();
+        SafeFeatureRendererWrapper.crashedEntityUuids.clear();
     }
 }

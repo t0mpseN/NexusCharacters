@@ -11,71 +11,13 @@ import java.util.UUID;
 
 public class NexusCharactersNetwork {
 
-    // ── Respawn helper (play phase, after character switch mid-session) ────────
-
-    /**
-     * Respawns the player in-place so Minecraft (and all mods) re-read player data
-     * from the world dir files we just placed there.
-     */
-    static void respawnPlayer(ServerPlayerEntity player) {
-        CharacterDto character = NexusCharacters.getSelectedCharacter(player);
-        if (character == null) {
-            NexusCharacters.LOGGER.warn("[Nexus] respawnPlayer: no character selected for {} — falling back to applyCharacterData", player.getName().getString());
-            CharacterDataManager.applyCharacterData(player);
-            return;
-        }
-
-        NexusCharacters.LOGGER.info("[Nexus] Respawning player {} (uuid={}) to reload mod data for char {} ({})",
-                player.getName().getString(), player.getUuid(), character.name(), character.id());
-
-        NexusCharacters.respawningPlayers.add(player.getUuid());
-        ServerPlayerEntity newPlayer;
-        try {
-            newPlayer = player.server.getPlayerManager().respawnPlayer(player, true);
-        } finally {
-            NexusCharacters.respawningPlayers.remove(player.getUuid());
-        }
-        NexusCharacters.LOGGER.info("[Nexus] Respawn call complete, new player uuid={}", newPlayer.getUuid());
-
-        // Re-apply character to the NEW player object (respawn creates a new instance)
-        NexusCharacters.setSelectedCharacter(newPlayer, character);
-
-        // Respawn resets game mode to default — enforce from DTO
-        newPlayer.changeGameMode(net.minecraft.world.GameMode.byId(character.gameMode()));
-
-        // Restore position from vault
-        String worldId = CharacterDataManager.getWorldId(newPlayer);
-        java.util.Optional<VaultManager.WorldPos> pos = VaultManager.getWorldPosition(character.id(), worldId);
-        if (pos.isPresent()) {
-            NexusCharacters.LOGGER.info("[Nexus] Teleporting {} to saved pos [{}, {}, {}] in world {}",
-                    character.name(), pos.get().x(), pos.get().y(), pos.get().z(), worldId);
-            CharacterDataManager.teleportTo(newPlayer, pos.get());
-        } else {
-            String hostSave = worldId.substring(0, worldId.lastIndexOf('|'));
-            java.util.Optional<VaultManager.WorldPos> fallback = VaultManager.getAnyPositionForWorld(character.id(), hostSave);
-            if (fallback.isPresent()) {
-                NexusCharacters.LOGGER.info("[Nexus] Teleporting {} to fallback pos [{}, {}, {}]",
-                        character.name(), fallback.get().x(), fallback.get().y(), fallback.get().z());
-                CharacterDataManager.teleportTo(newPlayer, fallback.get());
-            } else {
-                net.minecraft.util.math.BlockPos spawn = newPlayer.getServerWorld().getSpawnPos();
-                NexusCharacters.LOGGER.info("[Nexus] No saved position for {} — teleporting to spawn {}", character.name(), spawn);
-                newPlayer.teleport(newPlayer.getServerWorld(), spawn.getX(), spawn.getY() + 1, spawn.getZ(),
-                        java.util.Set.of(), 0f, 0f);
-            }
-        }
-
-        newPlayer.sendAbilitiesUpdate();
-        NexusCharacters.LOGGER.info("[Nexus] Respawn complete for {} (char {}).", character.name(), character.id());
-    }
-
     // ── Install vault into world dir ──────────────────────────────────────────
 
     /**
      * Called on the server thread once a vault zip is assembled during play phase.
-     * Installs files into the world dir then respawns the player.
+     * Writes the new character's files to disk and applies character data in-place.
      */
-    private static void installVaultAndRespawn(ServerPlayerEntity player, CharacterDto dto, byte[] zip) {
+    private static void installVaultAndApply(ServerPlayerEntity player, CharacterDto dto, byte[] zip) {
         Path worldDir = player.server.getSavePath(WorldSavePath.ROOT).toAbsolutePath().normalize();
         UUID playerUuid = player.getUuid();
 
@@ -87,20 +29,16 @@ public class NexusCharactersNetwork {
             NexusCharacters.LOGGER.info("[Server] Play-phase vault installed for player {} char {}.", playerUuid, dto.id());
         } catch (Exception e) {
             NexusCharacters.LOGGER.error("[Server] Failed to install vault during play phase:", e);
+            NexusCharacters.pendingVaultUpload.remove(playerUuid);
             return;
         }
 
-        // Use respawnPlayer so mods that load per-player data at entity-construction time
-        // (e.g. Prominent Talents, most capability/attachment systems) re-read from the vault
-        // files we just wrote to disk. applyCharacterData alone only patches vanilla NBT on
-        // the existing entity instance, which mod systems that cached state at join ignore.
-        // alive=true → "dimension-change" style respawn, no death screen on client.
-        //
-        // Delay by 1 tick so the client finishes its initial join sequence (chunk loading,
-        // capability sync packets from other mods) before we trigger the respawn. Without
-        // this delay the client can end up in a broken half-loaded state.
-        final ServerPlayerEntity finalPlayer = player;
-        finalPlayer.server.execute(() -> respawnPlayer(finalPlayer));
+        NexusCharacters.pendingVaultUpload.remove(playerUuid);
+
+        CharacterDataManager.evictPersistentStateCache(player.server);
+
+        CharacterDataManager.applyCharacterData(player);
+        NexusCharacters.LOGGER.info("[Server] Character data applied for {} (char {}).", dto.name(), dto.id());
     }
 
     // ── Helper: send a payload S2C ────────────────────────────────────────────
@@ -173,7 +111,10 @@ public class NexusCharactersNetwork {
                             CharacterDataManager.applyCharacterData(player);
                         } else {
                             // Dedicated / LAN guest: request vault upload from client.
-                            NexusCharacters.LOGGER.info("[Server] Requesting vault upload from {}.", player.getName().getString());
+                            // Mark this player as having a pending upload so the periodic sync tick
+                            // does not send stale server-side data to the client while upload is in-flight.
+                            NexusCharacters.pendingVaultUpload.add(player.getUuid());
+                            NexusCharacters.LOGGER.info("[Server] Requesting vault upload from {} (upload pending).", player.getName().getString());
                             sendToClient(player, new VaultReceiveReadyPayload());
                         }
                     });
@@ -208,7 +149,7 @@ public class NexusCharactersNetwork {
                             return;
                         }
 
-                        installVaultAndRespawn(player, dto, zip);
+                        installVaultAndApply(player, dto, zip);
                     });
                 });
 
