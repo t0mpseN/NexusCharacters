@@ -236,9 +236,36 @@ public class VaultManager {
      *
      * @return true if legacy data was found and imported
      */
+    /**
+     * Marker file written to a world dir the first time NexusCharacters stages a vault there.
+     * Its presence means the world is already managed by NexusCharacters, so any playerdata
+     * files found in it were written by a character — not by a pre-NexusCharacters session.
+     * Legacy import must be skipped for managed worlds to prevent new characters from
+     * inheriting items and progress from whoever last played in that world.
+     */
+    private static final String NEXUS_MARKER = "nexuscharacters.marker";
+
+    /** Writes the NexusCharacters marker to the world dir if not already present. */
+    public static void writeWorldMarker(Path worldDir) {
+        Path marker = worldDir.resolve(NEXUS_MARKER);
+        if (!Files.exists(marker)) {
+            try { Files.writeString(marker, "managed"); } catch (IOException ignored) {}
+        }
+    }
+
+    /** Returns true if this world has been managed by NexusCharacters before. */
+    public static boolean isWorldManaged(Path worldDir) {
+        return Files.exists(worldDir.resolve(NEXUS_MARKER));
+    }
+
     public static boolean importLegacyDataIfNeeded(UUID characterId, String characterName, Path worldDir) {
         Path vaultPlayerData = getVaultDir(characterId).resolve("playerdata/__player__.dat");
         if (Files.exists(vaultPlayerData)) return false; // vault already has data
+
+        // If NexusCharacters has already managed this world, any playerdata here was written
+        // by a character — not a legacy pre-NexusCharacters session. Skip import to prevent
+        // new characters from inheriting data from whoever last played in this world.
+        if (isWorldManaged(worldDir)) return false;
 
         Path playerDataDir = worldDir.resolve("playerdata");
         if (!Files.isDirectory(playerDataDir)) return false;
@@ -408,6 +435,13 @@ public class VaultManager {
             }
         }
 
+        // data/ files that ARE in the vault are written below (overwriting world copies).
+        // We do NOT wipe data/ files that are absent from the vault: they may be shared
+        // world-level state (e.g. Cobblemon Pokédex, raid data) that should persist across
+        // character switches. Per-character mod state stored in data/ (e.g. Prominent talents)
+        // is handled correctly because copyWorldToVault captures it and copyVaultToWorld
+        // overwrites it — the evictPersistentStateCache call forces mods to re-read from disk.
+
         for (List<Path> batch : List.of(oldFormat, newFormat)) {
             for (Path file : batch) {
                 String vaultRel = vaultDir.relativize(file).toString().replace("\\", "/");
@@ -429,6 +463,9 @@ public class VaultManager {
                 Files.write(target, entry.getValue());
             } catch (IOException ignored) {}
         }
+
+        // Mark the world as managed so future character switches skip legacy import.
+        writeWorldMarker(worldDir);
     }
 
     public static void clearWorldFiles(Path worldDir, UUID playerUuid) {

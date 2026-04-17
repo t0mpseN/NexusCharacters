@@ -38,15 +38,24 @@ public class CharacterDataManager {
         NexusCharacters.LOGGER.info("[Nexus] Applying character {} for {} in {}",
                 character.name(), player.getName().getString(), worldId);
 
-        // 1. Force tracker recreation so they pick up the just-restored vault files
+        // 1. Evict cached PersistentState entries so mods re-read their data files from
+        //    the just-restored vault. Must happen before tracker refresh so any mod that
+        //    accesses PersistentState during tracker init also sees fresh data.
+        evictPersistentStateCache(player.server);
+
+        // 2. Force tracker recreation so they pick up the just-restored vault files
         NexusCharacters.LOGGER.info("[Nexus] applyCharacterData: refreshing trackers for {}.", player.getName().getString());
         refreshTrackers(player);
 
-        // 2. Read vanilla player NBT that Minecraft loaded from the world dir
+        // 3. Re-read and apply player NBT from the vault-staged playerdata file.
+        //
+        //    prepareCharacterData copies the vault into playerdata/<uuid>.dat before this runs.
+        //    We always apply readNbt here so the character's data overrides whatever
+        //    loadPlayerData loaded (which may have been the previous character's data from
+        //    level.dat or a stale playerdata file).
         NbtCompound playerNbt = readPlayerNbtFromWorld(player);
         NexusCharacters.LOGGER.info("[Nexus] applyCharacterData: playerNbt empty={} for {}.", playerNbt.isEmpty(), player.getName().getString());
 
-        player.getInventory().clear();
         player.clearStatusEffects();
 
         if (!playerNbt.isEmpty()) {
@@ -60,7 +69,8 @@ public class CharacterDataManager {
             player.readNbt(playerNbt);
             player.setUuid(uuid);
         } else {
-            // Fresh character — clean slate
+            // Fresh character with no prior data — clean slate
+            player.getInventory().clear();
             player.experienceLevel = 0;
             player.experienceProgress = 0f;
             player.totalExperience = 0;
@@ -95,6 +105,20 @@ public class CharacterDataManager {
         player.sendAbilitiesUpdate();
         player.getInventory().markDirty();
         player.playerScreenHandler.sendContentUpdates();
+
+        // Schedule an inventory guard only if the character has items to protect.
+        // Skipping it for empty-vault new characters lets mods give starter items undisturbed.
+        // If the character does have items, re-apply after a delay to override any post-join
+        // mod behaviour (starter kits, equipment wipes) that fires a few ticks after joining.
+        if (!player.getInventory().isEmpty()) {
+            NbtCompound inventorySnapshot = new NbtCompound();
+            player.writeNbt(inventorySnapshot);
+            long guardAt = player.server.getTicks() + NexusCharacters.INVENTORY_GUARD_TICKS;
+            NexusCharacters.inventoryGuardSnapshot.put(player.getUuid(), inventorySnapshot);
+            NexusCharacters.inventoryGuardTick.put(player.getUuid(), new long[]{guardAt});
+            NexusCharacters.LOGGER.info("[Nexus] Inventory guard scheduled for {} at tick {}.", character.name(), guardAt);
+        }
+
         NexusCharacters.LOGGER.info("[Nexus] applyCharacterData complete for {}.", character.name());
     }
 

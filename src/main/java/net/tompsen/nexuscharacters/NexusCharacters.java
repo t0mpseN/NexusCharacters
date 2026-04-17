@@ -4,6 +4,7 @@ import net.fabricmc.api.ModInitializer;
 
 import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
+import net.minecraft.nbt.NbtCompound;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.network.ServerPlayerEntity;
 import org.slf4j.Logger;
@@ -42,6 +43,19 @@ public class NexusCharacters implements ModInitializer {
 	 * Consumed on ServerPlayConnectionEvents.JOIN to set selectedCharacters.
 	 */
 	public static final Map<UUID, CharacterDto> pendingCharacters = new ConcurrentHashMap<>();
+
+	/**
+	 * Inventory snapshots to re-apply after a short delay post-join.
+	 * Some mods give players starter items or wipe equipment on "first join" to a world,
+	 * firing a tick or two after the player entity loads. We store the vault inventory
+	 * and re-assert it after INVENTORY_GUARD_TICKS to override any such interference,
+	 * without hardcoding behaviour for any specific mod.
+	 * Value: pair of (snapshot tick, inventory NBT bytes).
+	 */
+	public static final Map<UUID, long[]> inventoryGuardTick = new ConcurrentHashMap<>();
+	public static final Map<UUID, NbtCompound> inventoryGuardSnapshot = new ConcurrentHashMap<>();
+	/** How many ticks after join to re-apply the inventory snapshot. */
+	public static final int INVENTORY_GUARD_TICKS = 100;
 	/** Ticks between per-second incremental vault syncs (20 ticks = 1 second). */
 	private static final int VAULT_SYNC_INTERVAL_TICKS = 20;
 	/** Ticks between advancements + pokedex syncs. Configurable via /nexus saveinterval. Default 30 s. */
@@ -159,6 +173,8 @@ public class NexusCharacters implements ModInitializer {
 
 			pendingCharacters.remove(disconnectUuid);
 			pendingVaultUpload.remove(disconnectUuid);
+			inventoryGuardTick.remove(disconnectUuid);
+			inventoryGuardSnapshot.remove(disconnectUuid);
 
 			CharacterDto current = NexusCharacters.getSelectedCharacter(player);
 			if (current == null) return;
@@ -225,6 +241,38 @@ public class NexusCharacters implements ModInitializer {
 				}
 				VaultManager.copyWorldToVault(charToSave.id(), worldDir, disconnectUuid);
 			});
+		});
+
+		// Inventory guard: re-apply vault inventory snapshot after INVENTORY_GUARD_TICKS
+		// to override any mod that hands out starter items or clears equipment on "first join".
+		net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents.END_SERVER_TICK.register(tickServer -> {
+			if (inventoryGuardTick.isEmpty()) return;
+			long now = tickServer.getTicks();
+			java.util.Iterator<Map.Entry<UUID, long[]>> it = inventoryGuardTick.entrySet().iterator();
+			while (it.hasNext()) {
+				Map.Entry<UUID, long[]> entry = it.next();
+				UUID uuid = entry.getKey();
+				if (now < entry.getValue()[0]) continue; // not yet time
+				it.remove();
+				NbtCompound snapshot = inventoryGuardSnapshot.remove(uuid);
+				if (snapshot == null) continue;
+				ServerPlayerEntity livePlayer = tickServer.getPlayerManager().getPlayer(uuid);
+				if (livePlayer == null) continue;
+				// Merge the snapshot inventory into the player's current live state and re-apply.
+				// This overrides any starter-kit or equipment-clear that a mod fired post-join,
+				// while preserving live state (position, health, effects, etc.) from current.
+				NbtCompound current = new NbtCompound();
+				livePlayer.writeNbt(current);
+				current.put("Inventory", snapshot.get("Inventory"));
+				if (snapshot.contains("Equipment")) current.put("Equipment", snapshot.get("Equipment"));
+				if (snapshot.contains("SelectedItemSlot")) current.put("SelectedItemSlot", snapshot.get("SelectedItemSlot"));
+				UUID playerUuid = livePlayer.getUuid();
+				livePlayer.readNbt(current);
+				livePlayer.setUuid(playerUuid);
+				livePlayer.getInventory().markDirty();
+				livePlayer.playerScreenHandler.sendContentUpdates();
+				LOGGER.info("[Nexus] Inventory guard: re-applied vault inventory for {} to override post-join mod interference.", livePlayer.getName().getString());
+			}
 		});
 
 		// Periodic server→client incremental vault sync.

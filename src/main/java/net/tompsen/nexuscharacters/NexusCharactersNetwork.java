@@ -45,7 +45,6 @@ public class NexusCharactersNetwork {
         }
 
         NexusCharacters.pendingVaultUpload.remove(playerUuid);
-        CharacterDataManager.evictPersistentStateCache(player.server);
         CharacterDataManager.applyCharacterData(player);
         NexusCharacters.LOGGER.info("[Server] Character data applied for {} (char {}).", dto.name(), dto.id());
     }

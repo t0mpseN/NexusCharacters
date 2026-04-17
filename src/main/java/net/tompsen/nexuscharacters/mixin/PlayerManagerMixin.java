@@ -2,6 +2,7 @@ package net.tompsen.nexuscharacters.mixin;
 
 import net.minecraft.advancement.PlayerAdvancementTracker;
 import net.minecraft.entity.player.PlayerEntity;
+import net.minecraft.network.ClientConnection;
 import net.minecraft.server.PlayerManager;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.util.WorldSavePath;
@@ -20,6 +21,45 @@ import java.util.UUID;
 
 @Mixin(PlayerManager.class)
 public class PlayerManagerMixin {
+
+    /**
+     * Fires at the very start of PlayerManager.onPlayerConnect, before loadPlayerData.
+     * For singleplayer/LAN host, the character is already chosen (selectedCharacter is set
+     * from the character picker before world load). We stage vault files here so that
+     * loadPlayerData reads the correct playerdata/<uuid>.dat and all mods (including those
+     * that hook readNbt) restore data properly during entity initialization — not as an
+     * after-the-fact readNbt call on a live entity.
+     */
+    @Inject(method = "onPlayerConnect", at = @At("HEAD"))
+    private void beforeLoadPlayerData(ClientConnection connection, ServerPlayerEntity player, CallbackInfo ci) {
+        boolean isDedicated = player.server.isDedicated();
+        boolean isHost = player.server.isHost(player.getGameProfile());
+        boolean isLanGuest = !isDedicated && !isHost;
+
+        // Only handle singleplayer/LAN host here.
+        // Dedicated: login-phase already staged the vault.
+        // LAN guest: no character selected yet (play-phase picker not shown yet).
+        if (isDedicated || isLanGuest) return;
+
+        // Character must already be selected from the title-screen picker.
+        if (NexusCharacters.selectedCharacter == null) return;
+
+        // Don't re-stage if prepareCharacterData already ran (e.g. a Nexus-triggered respawn).
+        if (NexusCharacters.getSelectedCharacter(player) != null) return;
+
+        NexusCharacters.setSelectedCharacter(player, NexusCharacters.selectedCharacter);
+        Path worldDir = player.server.getSavePath(WorldSavePath.ROOT).toAbsolutePath().normalize();
+        UUID uuid = player.getUuid();
+
+        VaultManager.importLegacyDataIfNeeded(NexusCharacters.selectedCharacter.id(),
+                NexusCharacters.selectedCharacter.name(), worldDir);
+        VaultManager.clearWorldFiles(worldDir, uuid);
+        VaultManager.copyVaultToWorld(NexusCharacters.selectedCharacter.id(), worldDir, uuid);
+        CharacterDataManager.evictPersistentStateCache(player.server);
+
+        NexusCharacters.LOGGER.info("[Nexus] beforeLoadPlayerData: vault staged for {} BEFORE loadPlayerData.",
+                player.getName().getString());
+    }
 
     @Inject(method = "remove", at = @At("TAIL"))
     private void afterRemove(ServerPlayerEntity player, CallbackInfo ci) {
@@ -40,6 +80,8 @@ public class PlayerManagerMixin {
 
         NexusCharacters.clearSelectedCharacter(player);
         NexusCharacters.playerJoinTick.remove(uuid);
+        NexusCharacters.inventoryGuardTick.remove(uuid);
+        NexusCharacters.inventoryGuardSnapshot.remove(uuid);
         // Only clear the static selectedCharacter for singleplayer/LAN host (not LAN guests)
         if (!player.server.isDedicated() && !isLanGuest) {
             NexusCharacters.selectedCharacter = null;
@@ -103,12 +145,14 @@ public class PlayerManagerMixin {
             return;
         }
 
-        // Singleplayer / LAN host: use selectedCharacter or last-used
-        UUID charId = NexusCharacters.selectedCharacter != null
-                ? NexusCharacters.selectedCharacter.id()
-                : NexusCharacters.DATA_FILE_MANAGER.getLastUsed(player.getUuid());
+        // Singleplayer / LAN host: vault staging should have happened in beforeLoadPlayerData
+        // (which fires before loadPlayerData). If selectedCharacter was set at that point,
+        // the vault is already staged and getSelectedCharacter(player) is already set — we
+        // already returned early above. Reaching here means selectedCharacter was null at
+        // beforeLoadPlayerData time but is now available (edge case), so try last-used.
+        UUID charId = NexusCharacters.DATA_FILE_MANAGER.getLastUsed(player.getUuid());
 
-        NexusCharacters.LOGGER.info("[Nexus] prepareCharacterData: player={} singleplayer/host charId={}",
+        NexusCharacters.LOGGER.info("[Nexus] prepareCharacterData: player={} singleplayer/host charId={} (fallback)",
                 player.getName().getString(), charId);
 
         if (charId == null) return;
@@ -118,14 +162,12 @@ public class PlayerManagerMixin {
             Path worldDir = player.server.getSavePath(WorldSavePath.ROOT).toAbsolutePath().normalize();
             // Import pre-existing player data for a matching username if this is a fresh vault
             VaultManager.importLegacyDataIfNeeded(character.id(), character.name(), worldDir);
-            // Singleplayer / LAN host: copy vault files into world dir right now,
-            // before Minecraft's PlayerManager reads player.dat, advancements, stats.
+            // Fallback: loadPlayerData already ran, so vault staging here is post-hoc.
+            // copyVaultToWorld still updates the file on disk so applyCharacterData can read it.
             VaultManager.clearWorldFiles(worldDir, player.getUuid());
             VaultManager.copyVaultToWorld(character.id(), worldDir, player.getUuid());
-            // Evict any cached PersistentState objects (e.g. puffish_skills, puffish_attributes)
-            // from all server worlds so they are re-read from the just-restored vault files.
             CharacterDataManager.evictPersistentStateCache(player.server);
-            NexusCharacters.LOGGER.info("[Nexus] Vault installed for singleplayer/host join: {}", character.name());
+            NexusCharacters.LOGGER.info("[Nexus] Vault installed for singleplayer/host join (fallback): {}", character.name());
         });
     }
 }
